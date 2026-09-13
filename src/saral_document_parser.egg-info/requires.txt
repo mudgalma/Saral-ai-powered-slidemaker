@@ -1,0 +1,13 @@
+celery[redis]==5.6.3
+docling==2.69.1
+fastapi==0.128.0
+langsmith==0.4.37
+pydantic==2.12.5
+python-multipart==0.0.20
+redis==6.4.0
+supabase==2.31.0
+uvicorn==0.38.0
+
+[dev]
+pytest==8.4.2
+ruff==0.14.10

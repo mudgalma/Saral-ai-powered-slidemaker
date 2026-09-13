@@ -1,0 +1,2 @@
+[console_scripts]
+saral-parse = saral_parser.cli:main
