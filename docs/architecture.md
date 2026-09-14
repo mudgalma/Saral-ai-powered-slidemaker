@@ -1,5 +1,8 @@
 # SARAL architecture
 
+For the complete current architecture and low-level design—including chunk metadata, private image
+delivery, retrieval, grounding, and conversations—see [full-architecture.md](full-architecture.md).
+
 SARAL preserves source structure before indexing it. The parser stores immutable PDF and image
 assets privately, while each chunk keeps page numbers, source references, bounding boxes, and
 related `asset_ids`. Text embeddings are an additional index on those rows—not a replacement for
@@ -17,7 +20,7 @@ flowchart LR
     P -->|chunks + page/asset provenance| DB
     P -->|PDF, document JSON, page/figure/table assets| S
     PW --> EW[Celery: embed_document]
-    EW --> O[OpenAI text-embedding-3-small]
+    EW --> O[OpenRouter openai/text-embedding-3-small]
     O -->|vectors| DB
 
     UI -->|prompt + controls| API
@@ -61,7 +64,7 @@ sequenceDiagram
     participant R as Redis
     participant PW as Parser worker
     participant EW as Embed worker
-    participant O as OpenAI
+    participant O as OpenRouter
 
     UI->>API: POST /v1/documents (PDF)
     API->>DB: queued document + parse job

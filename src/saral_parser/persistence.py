@@ -7,7 +7,7 @@ import mimetypes
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Mapping, Sequence, TypeVar
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from langsmith import traceable
 
@@ -104,6 +104,119 @@ class SupabasePersistence:
         )
         rows = getattr(response, "data", None) or []
         return dict(rows[0]) if rows else None
+
+    def ensure_conversation(self, thread_id: UUID, document_id: str, owner_id: UUID) -> None:
+        """Create one owner-scoped conversation or reject a cross-document thread reuse."""
+        response = self._execute(
+            lambda: self._client.table("conversations")
+            .select("document_id")
+            .eq("id", str(thread_id))
+            .eq("owner_id", str(owner_id))
+            .limit(1)
+            .execute()
+        )
+        rows = getattr(response, "data", None) or []
+        if rows:
+            if rows[0]["document_id"] != document_id:
+                raise PersistenceError("Conversation belongs to another document")
+            return
+        self._execute(
+            lambda: self._client.table("conversations")
+            .insert({"id": str(thread_id), "document_id": document_id, "owner_id": str(owner_id)})
+            .execute()
+        )
+
+    def get_conversation_messages(
+        self, thread_id: UUID, document_id: str, owner_id: UUID, limit: int = 40
+    ) -> list[Dict[str, Any]]:
+        """Return bounded owner- and document-scoped conversation messages in time order."""
+        response = self._execute(
+            lambda: self._client.table("conversation_messages")
+            .select("id,role,content,created_at")
+            .eq("conversation_id", str(thread_id))
+            .eq("document_id", document_id)
+            .eq("owner_id", str(owner_id))
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return [dict(row) for row in reversed(getattr(response, "data", None) or [])]
+
+    def append_conversation_message(
+        self, thread_id: UUID, document_id: str, owner_id: UUID, role: str, content: str
+    ) -> None:
+        """Persist one bounded conversation message owned by the document owner."""
+        if role not in {"user", "assistant"} or not content or len(content) > 16_000:
+            raise PersistenceError("Conversation message is invalid")
+        self._execute(
+            lambda: self._client.table("conversation_messages")
+            .insert(
+                {
+                    "id": str(uuid4()),
+                    "conversation_id": str(thread_id),
+                    "document_id": document_id,
+                    "owner_id": str(owner_id),
+                    "role": role,
+                    "content": content,
+                }
+            )
+            .execute()
+        )
+        self._execute(
+            lambda: self._client.table("conversations")
+            .update({"updated_at": _utc_now()})
+            .eq("id", str(thread_id))
+            .eq("document_id", document_id)
+            .eq("owner_id", str(owner_id))
+            .execute()
+        )
+
+    def get_artifact_versions(
+        self, thread_id: UUID, document_id: str, owner_id: UUID, limit: int = 20
+    ) -> list[Dict[str, Any]]:
+        """Return immutable artifact versions newest first, bounded for conversation state."""
+        response = self._execute(
+            lambda: self._client.table("artifact_versions")
+            .select("id,version_number,parent_version_id,artifact,delta,created_at")
+            .eq("conversation_id", str(thread_id))
+            .eq("document_id", document_id)
+            .eq("owner_id", str(owner_id))
+            .order("version_number", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return [dict(row) for row in (getattr(response, "data", None) or [])]
+
+    def create_artifact_version(
+        self,
+        thread_id: UUID,
+        document_id: str,
+        owner_id: UUID,
+        artifact: Dict[str, Any],
+        parent_version_id: UUID | None,
+        delta: str | None,
+    ) -> Dict[str, Any]:
+        """Atomically allocate and insert an immutable next version for one conversation."""
+        response = self._execute(
+            lambda: self._client.rpc(
+                "create_artifact_version",
+                {
+                    "p_id": str(uuid4()),
+                    "p_conversation_id": str(thread_id),
+                    "p_document_id": document_id,
+                    "p_owner_id": str(owner_id),
+                    "p_artifact": artifact,
+                    "p_parent_version_id": str(parent_version_id) if parent_version_id else None,
+                    "p_delta": delta,
+                },
+            ).execute()
+        )
+        rows = getattr(response, "data", None)
+        if not rows:
+            raise PersistenceError("Artifact version was not created")
+        if isinstance(rows, Mapping):
+            return dict(rows)
+        return dict(rows[0])
 
     def create_embedding_job(
         self, document_id: str, owner_id: UUID, job_id: UUID, embedding_model: str

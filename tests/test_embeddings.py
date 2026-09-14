@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from saral_parser.embeddings import OpenAIEmbedder, vector_literal
+from saral_parser.embeddings import OpenRouterEmbedder, vector_literal
 from saral_parser.exceptions import EmbeddingError
 from saral_parser.models import EmbeddingSettings
 
@@ -26,7 +26,7 @@ class FakeEmbeddingsAPI:
 def test_embedder_preserves_provider_order_and_uses_configured_dimensions():
     api = FakeEmbeddingsAPI([(1, [4.0, 5.0, 6.0]), (0, [1.0, 2.0, 3.0])])
     client = SimpleNamespace(embeddings=api)
-    embedder = OpenAIEmbedder(embedding_settings(), client=client)
+    embedder = OpenRouterEmbedder(embedding_settings(), client=client)
 
     assert embedder.embed_texts(["first", "second"]) == [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
     assert api.calls[0]["dimensions"] == 3
@@ -34,7 +34,7 @@ def test_embedder_preserves_provider_order_and_uses_configured_dimensions():
 
 def test_embedder_rejects_empty_text_without_provider_call():
     api = FakeEmbeddingsAPI([])
-    embedder = OpenAIEmbedder(embedding_settings(), client=SimpleNamespace(embeddings=api))
+    embedder = OpenRouterEmbedder(embedding_settings(), client=SimpleNamespace(embeddings=api))
 
     with pytest.raises(EmbeddingError, match="must not be empty"):
         embedder.embed_texts(["   "])
@@ -43,7 +43,7 @@ def test_embedder_rejects_empty_text_without_provider_call():
 
 def test_embedder_rejects_wrong_vector_shape():
     api = FakeEmbeddingsAPI([(0, [1.0, 2.0])])
-    embedder = OpenAIEmbedder(embedding_settings(), client=SimpleNamespace(embeddings=api))
+    embedder = OpenRouterEmbedder(embedding_settings(), client=SimpleNamespace(embeddings=api))
 
     with pytest.raises(EmbeddingError, match="invalid vector shape"):
         embedder.embed_texts(["chunk"])

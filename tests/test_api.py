@@ -4,7 +4,18 @@ from uuid import UUID
 from fastapi.testclient import TestClient
 
 from saral_parser.app import create_app
-from saral_parser.models import RetrievalResponse, RetrievedChunk
+from saral_parser.exceptions import GenerationError
+from saral_parser.models import (
+    ConversationBranch,
+    ConversationIntent,
+    ConversationResponse,
+    GeneratedArtifactDraft,
+    GenerationResponse,
+    GroundedClaim,
+    GroundingReport,
+    RetrievalResponse,
+    RetrievedChunk,
+)
 
 OWNER_ID = UUID("11111111-1111-4111-8111-111111111111")
 
@@ -54,8 +65,8 @@ class FakeRetriever:
                     chunk_id="chunk-1",
                     document_id=document_id,
                     chunk_index=0,
-                    text="Method text",
-                    contextualized_text="Methods\\nMethod text",
+                    text="Method text is retrieved before generation.",
+                    contextualized_text="Methods\\nMethod text is retrieved before generation.",
                     source_refs=["#/texts/0"],
                     page_numbers=[1],
                     provenance=[{"page_number": 1}],
@@ -65,6 +76,45 @@ class FakeRetriever:
                     dense_rank=1,
                 )
             ],
+        )
+
+
+class FakeGenerator:
+    def generate(self, prompt, max_output_tokens):
+        return GeneratedArtifactDraft(
+            title="Methods",
+            content="Method text is retrieved before generation. [chunk-1]",
+            claims=[
+                GroundedClaim(
+                    text="Method text is retrieved before generation.", citation_ids=["chunk-1"]
+                )
+            ],
+        )
+
+
+class FailingGenerator:
+    def generate(self, prompt, max_output_tokens):
+        raise GenerationError("provider unavailable")
+
+
+class FakeConversationService:
+    def respond(self, document_id, owner_id, request):
+        return ConversationResponse(
+            thread_id=request.thread_id,
+            document_id=document_id,
+            intent=ConversationIntent(
+                branch=ConversationBranch.QUESTION,
+                artifact_type="answer",
+                audience="general audience",
+                length="standard",
+                style="technical",
+            ),
+            generation=GenerationResponse(
+                document_id=document_id,
+                status="unsupported",
+                grounding=GroundingReport(passed=False, issues=["Not found in document"]),
+                attempts=0,
+            ),
         )
 
 
@@ -135,6 +185,73 @@ def test_retrieve_returns_409_until_embedding_is_ready(settings):
     )
 
     assert response.status_code == 409
+
+
+def test_generate_returns_a_grounded_artifact(settings):
+    api = TestClient(
+        create_app(
+            settings,
+            FakePersistence(),
+            FakeDispatcher(),
+            lambda _token: OWNER_ID,
+            FakeRetriever(),
+            FakeGenerator(),
+        )
+    )
+    response = api.post(
+        "/v1/documents/doc_0123456789abcdef/generate",
+        json={
+            "artifact_type": "summary",
+            "audience": "Policymakers",
+            "length": "brief",
+            "style": "Plain English",
+            "user_instruction": "Summarize the method",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "complete"
+    assert response.json()["artifact"]["citations"][0]["page_numbers"] == [1]
+
+
+def test_generate_returns_safe_provider_failure(settings):
+    api = TestClient(
+        create_app(
+            settings,
+            FakePersistence(),
+            FakeDispatcher(),
+            lambda _token: OWNER_ID,
+            FakeRetriever(),
+            FailingGenerator(),
+        )
+    )
+    response = api.post(
+        "/v1/documents/doc_0123456789abcdef/generate",
+        json={"user_instruction": "Summarize the method"},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Grounded document generation is unavailable"
+
+
+def test_conversation_endpoint_returns_routed_grounded_response(settings):
+    api = TestClient(
+        create_app(
+            settings,
+            FakePersistence(),
+            FakeDispatcher(),
+            lambda _token: OWNER_ID,
+            conversation_service=FakeConversationService(),
+        )
+    )
+    response = api.post(
+        "/v1/documents/doc_0123456789abcdef/conversations/messages",
+        json={"thread_id": "22222222-2222-4222-8222-222222222222", "message": "What method?"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["intent"]["branch"] == "question"
+    assert response.json()["generation"]["status"] == "unsupported"
 
 
 

@@ -194,12 +194,13 @@ class SupabaseSettings(BaseModel):
 
 
 class EmbeddingSettings(BaseModel):
-    """Server-only OpenAI embedding configuration for one retrieval index."""
+    """Server-only OpenRouter embedding configuration for one retrieval index."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     api_key: SecretStr
-    model: str = "text-embedding-3-small"
+    base_url: str = "https://openrouter.ai/api/v1"
+    model: str = "openai/text-embedding-3-small"
     dimensions: int = Field(default=1536, ge=1, le=2000)
     batch_size: int = Field(default=64, ge=1, le=2048)
     timeout_seconds: float = Field(default=30.0, ge=5.0, le=120.0)
@@ -208,17 +209,46 @@ class EmbeddingSettings(BaseModel):
     @classmethod
     def from_env(cls) -> "EmbeddingSettings":
         """Load the embedding provider configuration without logging its API key."""
-        key = os.environ.get("OPENAI_API_KEY", "").strip()
+        key = os.environ.get("OPENROUTER_API_KEY", "").strip()
         if not key:
             from .exceptions import ConfigurationError
 
-            raise ConfigurationError("OPENAI_API_KEY is required for retrieval")
+            raise ConfigurationError("OPENROUTER_API_KEY is required for retrieval")
         return cls(
             api_key=SecretStr(key),
-            model=os.environ.get("SARAL_EMBEDDING_MODEL", "text-embedding-3-small"),
+            base_url=os.environ.get("SARAL_OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+            model=os.environ.get("SARAL_EMBEDDING_MODEL", "openai/text-embedding-3-small"),
             dimensions=int(os.environ.get("SARAL_EMBEDDING_DIMENSIONS", "1536")),
             batch_size=int(os.environ.get("SARAL_EMBEDDING_BATCH_SIZE", "64")),
             timeout_seconds=float(os.environ.get("SARAL_EMBEDDING_TIMEOUT_SECONDS", "30")),
+        )
+
+
+class GenerationSettings(BaseModel):
+    """Server-only OpenRouter configuration for bounded grounded generation."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    api_key: SecretStr
+    base_url: str = "https://openrouter.ai/api/v1"
+    model: str = "openai/gpt-4.1-mini"
+    timeout_seconds: float = Field(default=45.0, ge=5.0, le=120.0)
+    max_output_tokens: int = Field(default=1_400, ge=100, le=4_000)
+
+    @classmethod
+    def from_env(cls) -> "GenerationSettings":
+        """Load generation configuration without logging its API key."""
+        key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+        if not key:
+            from .exceptions import ConfigurationError
+
+            raise ConfigurationError("OPENROUTER_API_KEY is required for generation")
+        return cls(
+            api_key=SecretStr(key),
+            base_url=os.environ.get("SARAL_OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+            model=os.environ.get("SARAL_GENERATION_MODEL", "openai/gpt-4.1-mini"),
+            timeout_seconds=float(os.environ.get("SARAL_GENERATION_TIMEOUT_SECONDS", "45")),
+            max_output_tokens=int(os.environ.get("SARAL_GENERATION_MAX_OUTPUT_TOKENS", "1400")),
         )
 
 
@@ -285,3 +315,208 @@ class RetrievalResponse(BaseModel):
     document_id: str
     chunks: List[RetrievedChunk]
 
+
+class ArtifactType(str, Enum):
+    """Supported grounded artifacts returned by the generation API."""
+
+    ANSWER = "answer"
+    SUMMARY = "summary"
+    SCRIPT = "script"
+    SLIDE_OUTLINE = "slide_outline"
+    TWEET_THREAD = "tweet_thread"
+
+
+class GenerationLength(str, Enum):
+    """Output budgets exposed to API callers."""
+
+    BRIEF = "brief"
+    STANDARD = "standard"
+    EXTENDED = "extended"
+
+
+class GenerationRequest(BaseModel):
+    """Validated instructions for a document-grounded generated artifact."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    artifact_type: ArtifactType = ArtifactType.ANSWER
+    audience: str = Field(default="general audience", min_length=1, max_length=120)
+    length: GenerationLength = GenerationLength.STANDARD
+    style: str = Field(default="plain English", min_length=1, max_length=120)
+    user_instruction: str = Field(min_length=1, max_length=4_000)
+
+    @field_validator("audience", "style", "user_instruction")
+    @classmethod
+    def validate_generation_text(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("generation fields must not be blank")
+        return cleaned
+
+
+class EvidenceChunk(BaseModel):
+    """Citation-safe projection of one retrieved chunk for the LLM prompt."""
+
+    chunk_id: str
+    text: str = Field(min_length=1)
+    page_numbers: List[int] = Field(default_factory=list)
+    heading: Optional[str] = None
+    provenance: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class EvidenceAsset(BaseModel):
+    """One source visual linked to a retrieved chunk and safe for UI retrieval."""
+
+    asset_id: str = Field(min_length=1)
+    source_chunk_id: str = Field(min_length=1)
+    page_numbers: List[int] = Field(default_factory=list)
+    caption: Optional[str] = Field(default=None, max_length=2_000)
+
+
+class EvidencePack(BaseModel):
+    """Bounded evidence supplied to one grounded generation workflow."""
+
+    document_id: str
+    chunks: List[EvidenceChunk] = Field(min_length=1, max_length=8)
+    assets: List[EvidenceAsset] = Field(default_factory=list, max_length=12)
+
+
+class GroundedClaim(BaseModel):
+    """A generated factual claim and the chunks offered as its evidence."""
+
+    text: str = Field(min_length=1, max_length=1_500)
+    citation_ids: List[str] = Field(min_length=1, max_length=4)
+
+
+class GeneratedArtifactDraft(BaseModel):
+    """Schema parsed directly from the LLM before deterministic grounding checks."""
+
+    title: str = Field(min_length=1, max_length=180)
+    content: str = Field(min_length=1, max_length=16_000)
+    claims: List[GroundedClaim] = Field(min_length=1, max_length=50)
+
+
+class ArtifactCitation(BaseModel):
+    """Display-ready citation derived only from retrieved evidence metadata."""
+
+    chunk_id: str
+    page_numbers: List[int] = Field(default_factory=list)
+    heading: Optional[str] = None
+
+
+class ArtifactVisualAsset(BaseModel):
+    """A UI-displayable source visual selected alongside grounded evidence."""
+
+    asset_id: str = Field(min_length=1)
+    source_chunk_id: str = Field(min_length=1)
+    page_numbers: List[int] = Field(default_factory=list)
+    caption: Optional[str] = Field(default=None, max_length=2_000)
+
+
+class GroundingReport(BaseModel):
+    """Deterministic audit result for one generated draft."""
+
+    passed: bool
+    issues: List[str] = Field(default_factory=list)
+    cited_chunk_ids: List[str] = Field(default_factory=list)
+
+
+class GeneratedArtifact(BaseModel):
+    """A validated artifact that may be presented to an API client."""
+
+    artifact_type: ArtifactType
+    title: str
+    content: str
+    citations: List[ArtifactCitation] = Field(min_length=1)
+    visual_assets: List[ArtifactVisualAsset] = Field(default_factory=list, max_length=12)
+
+
+class GenerationResponse(BaseModel):
+    """Grounded generation result, including a safe flagged outcome."""
+
+    document_id: str
+    status: str
+    artifact: Optional[GeneratedArtifact] = None
+    grounding: GroundingReport
+    attempts: int = Field(ge=0, le=2)
+
+
+class ConversationBranch(str, Enum):
+    """Bounded routes supported by the Phase 2 conversation workflow."""
+
+    NEW_GENERATION = "new_generation"
+    REVISION = "revision"
+    QUESTION = "question"
+
+
+class ConversationMessageRequest(BaseModel):
+    """Validated user turn submitted to one document-bound conversation thread."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    thread_id: UUID
+    message: str = Field(min_length=1, max_length=2_000)
+    audience: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    length: Optional[GenerationLength] = None
+    style: Optional[str] = Field(default=None, min_length=1, max_length=120)
+
+    @field_validator("message", "audience", "style")
+    @classmethod
+    def validate_message(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("conversation text fields must not be blank")
+        return cleaned
+
+
+class ConversationIntent(BaseModel):
+    """Resolved artifact requirements and route for a single user message."""
+
+    branch: ConversationBranch
+    artifact_type: ArtifactType
+    audience: str = Field(min_length=1, max_length=120)
+    length: GenerationLength
+    style: str = Field(min_length=1, max_length=120)
+    is_revision: bool = False
+
+
+class ConversationMessage(BaseModel):
+    """A bounded persisted conversation message, never a prompt transcript."""
+
+    id: UUID
+    role: str
+    content: str = Field(min_length=1, max_length=16_000)
+    created_at: str
+
+
+class ArtifactVersion(BaseModel):
+    """Immutable version of a grounded artifact with optional parent and delta."""
+
+    id: UUID
+    version_number: int = Field(ge=1)
+    parent_version_id: Optional[UUID] = None
+    artifact: GeneratedArtifact
+    delta: Optional[str] = Field(default=None, max_length=8_000)
+    created_at: str
+
+
+class ConversationState(BaseModel):
+    """Persistent raw state used to resolve a document conversation turn."""
+
+    thread_id: UUID
+    document_id: str
+    messages: List[ConversationMessage] = Field(default_factory=list, max_length=40)
+    current_artifact: Optional[ArtifactVersion] = None
+    previous_versions: List[ArtifactVersion] = Field(default_factory=list, max_length=20)
+
+
+class ConversationResponse(BaseModel):
+    """Outcome of a routed, grounded document conversation turn."""
+
+    thread_id: UUID
+    document_id: str
+    intent: ConversationIntent
+    generation: GenerationResponse
+    version: Optional[ArtifactVersion] = None

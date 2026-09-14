@@ -93,11 +93,103 @@ create index if not exists document_validations_job_id_idx on public.document_va
 create index if not exists document_chunks_document_order_idx on public.document_chunks (document_id, chunk_index);
 create index if not exists document_chunks_job_id_idx on public.document_chunks (job_id);
 
+create table if not exists public.conversations (
+  id uuid primary key,
+  document_id text not null references public.documents(id) on delete cascade,
+  owner_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.conversation_messages (
+  id uuid primary key,
+  conversation_id uuid not null references public.conversations(id) on delete cascade,
+  document_id text not null references public.documents(id) on delete cascade,
+  owner_id uuid not null references auth.users(id) on delete cascade,
+  role text not null check (role in ('user', 'assistant')),
+  content text not null check (length(content) between 1 and 16000),
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.artifact_versions (
+  id uuid primary key,
+  conversation_id uuid not null references public.conversations(id) on delete cascade,
+  document_id text not null references public.documents(id) on delete cascade,
+  owner_id uuid not null references auth.users(id) on delete cascade,
+  version_number integer not null check (version_number > 0),
+  parent_version_id uuid references public.artifact_versions(id) on delete set null,
+  artifact jsonb not null,
+  delta text check (delta is null or length(delta) <= 8000),
+  created_at timestamptz not null default now(),
+  unique (conversation_id, version_number)
+);
+
+create index if not exists conversations_owner_document_idx on public.conversations (owner_id, document_id);
+create index if not exists conversation_messages_conversation_created_idx on public.conversation_messages (conversation_id, created_at desc);
+create index if not exists conversation_messages_document_owner_idx on public.conversation_messages (document_id, owner_id);
+create index if not exists artifact_versions_conversation_version_idx on public.artifact_versions (conversation_id, version_number desc);
+create index if not exists artifact_versions_document_owner_idx on public.artifact_versions (document_id, owner_id);
+create index if not exists artifact_versions_parent_version_idx on public.artifact_versions (parent_version_id);
+
+create or replace function public.create_artifact_version(
+  p_id uuid,
+  p_conversation_id uuid,
+  p_document_id text,
+  p_owner_id uuid,
+  p_artifact jsonb,
+  p_parent_version_id uuid,
+  p_delta text
+) returns public.artifact_versions
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  next_version integer;
+  created_version public.artifact_versions;
+begin
+  if not exists (
+    select 1 from public.conversations
+    where id = p_conversation_id and document_id = p_document_id and owner_id = p_owner_id
+  ) then
+    raise exception 'conversation scope is invalid' using errcode = '42501';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext(p_conversation_id::text));
+  select coalesce(max(version_number), 0) + 1 into next_version
+  from public.artifact_versions
+  where conversation_id = p_conversation_id and document_id = p_document_id and owner_id = p_owner_id;
+
+  insert into public.artifact_versions (
+    id, conversation_id, document_id, owner_id, version_number, parent_version_id, artifact, delta
+  ) values (
+    p_id, p_conversation_id, p_document_id, p_owner_id, next_version,
+    p_parent_version_id, p_artifact, p_delta
+  ) returning * into created_version;
+  return created_version;
+end;
+$$;
+
+revoke all on function public.create_artifact_version(uuid, uuid, text, uuid, jsonb, uuid, text)
+from public, anon, authenticated;
+grant execute on function public.create_artifact_version(uuid, uuid, text, uuid, jsonb, uuid, text)
+to service_role;
+
 alter table public.documents enable row level security;
 alter table public.processing_jobs enable row level security;
 alter table public.document_assets enable row level security;
 alter table public.document_validations enable row level security;
 alter table public.document_chunks enable row level security;
+alter table public.conversations enable row level security;
+alter table public.conversation_messages enable row level security;
+alter table public.artifact_versions enable row level security;
+
+revoke all on table public.conversations from anon, authenticated;
+revoke all on table public.conversation_messages from anon, authenticated;
+revoke all on table public.artifact_versions from anon, authenticated;
+grant select on table public.conversations to authenticated;
+grant select on table public.conversation_messages to authenticated;
+grant select on table public.artifact_versions to authenticated;
 
 create policy "owners read documents" on public.documents for select to authenticated
 using ((select auth.uid()) = owner_id);
@@ -108,6 +200,12 @@ using ((select auth.uid()) = owner_id);
 create policy "owners read validations" on public.document_validations for select to authenticated
 using ((select auth.uid()) = owner_id);
 create policy "owners read chunks" on public.document_chunks for select to authenticated
+using ((select auth.uid()) = owner_id);
+create policy "owners read conversations" on public.conversations for select to authenticated
+using ((select auth.uid()) = owner_id);
+create policy "owners read conversation messages" on public.conversation_messages for select to authenticated
+using ((select auth.uid()) = owner_id);
+create policy "owners read artifact versions" on public.artifact_versions for select to authenticated
 using ((select auth.uid()) = owner_id);
 
 -- The bucket is private. Only the Python API/worker uses the service-role key.

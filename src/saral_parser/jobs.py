@@ -14,7 +14,7 @@ from langsmith import trace, traceable
 
 from .chunking import HybridDocumentChunker
 from .docling_service import DoclingParser
-from .embeddings import OpenAIEmbedder, vector_literal
+from .embeddings import OpenRouterEmbedder, vector_literal
 from .exceptions import JobDispatchError
 from .models import (
     AcceptedDocument,
@@ -312,9 +312,9 @@ def _queue_embedding_if_configured(
     *, persistence: SupabasePersistence, document_id: str, owner_id: UUID
 ) -> str:
     """Queue indexing without letting a provider configuration issue fail parsing."""
-    if not os.environ.get("OPENAI_API_KEY", "").strip():
+    if not os.environ.get("OPENROUTER_API_KEY", "").strip():
         LOGGER.warning(
-            "Embedding was not queued because OPENAI_API_KEY is absent",
+            "Embedding was not queued because OPENROUTER_API_KEY is absent",
             extra={"document_id": document_id, "owner_id": str(owner_id)},
         )
         return "not_started"
@@ -380,7 +380,7 @@ def embed_document(
             document_id, parsed_owner_id, embedding_settings.model
         )
         if chunks:
-            vectors = OpenAIEmbedder(embedding_settings).embed_texts(
+            vectors = OpenRouterEmbedder(embedding_settings).embed_texts(
                 [str(chunk["contextualized_text"]) for chunk in chunks]
             )
             rows = [

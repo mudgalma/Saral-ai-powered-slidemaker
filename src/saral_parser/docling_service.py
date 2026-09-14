@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -267,12 +268,21 @@ class DoclingParser:
                 figures.append(item)
             elif isinstance(element, FormulaItem):
                 counts["formulas"] += 1
+                formula_id = f"formula_{counts['formulas']:04d}"
+                latex_text = getattr(element, "text", None)
+                if _is_formula_text_garbled(latex_text):
+                    source_ref = _self_ref(element) or "unknown"
+                    warnings.append(
+                        f"{formula_id} ({source_ref}): formula enrichment model produced "
+                        "space-separated character artifacts — review this formula's "
+                        "LaTeX against the source PDF before any scientific reuse."
+                    )
                 formulas.append(
                     {
-                        "id": f"formula_{counts['formulas']:04d}",
+                        "id": formula_id,
                         "source_element": _self_ref(element),
                         "provenance": _provenance(element),
-                        "latex": getattr(element, "text", None),
+                        "latex": latex_text,
                     }
                 )
 
@@ -358,6 +368,12 @@ class DoclingParser:
         if manifest.options.enable_formula_enrichment and manifest.counts.get("formulas", 0) == 0:
             review_items.append(
                 "Formula enrichment was enabled but no formula items were detected."
+            )
+        if manifest.options.enable_formula_enrichment and manifest.counts.get("formulas", 0) > 0:
+            warnings.append(
+                "Formula LaTeX text is model output from the enrichment pipeline. "
+                "Review each formula against the source PDF; space-separated character "
+                "errors are possible in complex or multi-symbol notation."
             )
         if not manifest.options.enable_ocr:
             warnings.append(
@@ -455,3 +471,20 @@ def _write_json(path: Path, data: Any) -> None:
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# Three or more consecutive space-separated single word-characters, e.g. "M u l t i H e a d".
+# Threshold of 3 avoids false positives on legitimate two-symbol notation like "A B".
+_GARBLED_FORMULA_RE = re.compile(r"(?<![\w])(\w ){3,}\w(?![\w])")
+
+
+def _is_formula_text_garbled(text: str | None) -> bool:
+    """Detect the space-separated single-character artifact common in formula enrichment output.
+
+    The formula enrichment model occasionally renders multi-character tokens as
+    individual characters separated by spaces (e.g. ``M u l t i H e a d`` instead
+    of ``\\mathrm{MultiHead}``).  Three or more consecutive space-separated
+    single word-characters is treated as a positive signal; this threshold avoids
+    false positives on two-symbol notation like ``A B`` or ``p \\eta``.
+    """
+    return bool(text and _GARBLED_FORMULA_RE.search(text))

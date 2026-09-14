@@ -1,4 +1,4 @@
-"""Bounded OpenAI embedding client used by indexing and retrieval."""
+"""Bounded OpenRouter embedding client used by indexing and retrieval."""
 
 from __future__ import annotations
 
@@ -12,8 +12,8 @@ from .models import EmbeddingSettings
 _TRANSIENT_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504}
 
 
-class OpenAIEmbedder:
-    """Create fixed-size OpenAI vectors without exposing provider failures."""
+class OpenRouterEmbedder:
+    """Create fixed-size OpenRouter vectors without exposing provider failures."""
 
     def __init__(self, settings: EmbeddingSettings, client: Any | None = None) -> None:
         self.settings = settings
@@ -42,6 +42,7 @@ class OpenAIEmbedder:
             raise EmbeddingError("The pinned openai package is not installed") from exc
         return OpenAI(
             api_key=self.settings.api_key.get_secret_value(),
+            base_url=self.settings.base_url,
             timeout=self.settings.timeout_seconds,
             max_retries=0,
         )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -14,14 +15,27 @@ from fastapi.responses import Response
 from langsmith import trace
 from pydantic import ValidationError
 
-from .embeddings import OpenAIEmbedder
-from .exceptions import ConfigurationError, InputValidationError, PersistenceError, RetrievalError
+from .embeddings import OpenRouterEmbedder
+from .exceptions import (
+    ConfigurationError,
+    GenerationError,
+    InputValidationError,
+    PersistenceError,
+    RetrievalError,
+)
+from .generation import GenerationService, OpenRouterArtifactGenerator
+from .conversation import ConversationService
 from .jobs import CeleryDispatcher, IngestionService
 from .models import (
     AcceptedDocument,
     ChunkOptions,
     DocumentStatus,
     EmbeddingSettings,
+    GenerationRequest,
+    GenerationResponse,
+    GenerationSettings,
+    ConversationMessageRequest,
+    ConversationResponse,
     ParseOptions,
     ParserSettings,
     RetrievalRequest,
@@ -33,6 +47,7 @@ from .retrieval import HybridRetriever
 from .validation import ensure_directories, validate_document_id
 
 UserResolver = Callable[[Optional[str]], UUID]
+LOGGER = logging.getLogger(__name__)
 
 
 def create_app(
@@ -41,6 +56,8 @@ def create_app(
     dispatcher: Any | None = None,
     user_resolver: UserResolver | None = None,
     retriever: Any | None = None,
+    generator: Any | None = None,
+    conversation_service: Any | None = None,
 ) -> FastAPI:
     """Build the API with injectable boundaries for deterministic tests."""
     active_settings = settings or ParserSettings.from_workspace(Path.cwd())
@@ -142,7 +159,7 @@ def create_app(
             raise HTTPException(status_code=409, detail="Document retrieval index is not ready")
         try:
             active_retriever = retriever or HybridRetriever(
-                active_persistence, OpenAIEmbedder(EmbeddingSettings.from_env())
+                active_persistence, OpenRouterEmbedder(EmbeddingSettings.from_env())
             )
             with trace(
                 "api.retrieve_document",
@@ -159,6 +176,125 @@ def create_app(
             ) from exc
         except RetrievalError as exc:
             raise HTTPException(status_code=502, detail="Document retrieval is unavailable") from exc
+
+    @app.post("/v1/documents/{document_id}/generate", response_model=GenerationResponse)
+    def generate_document(
+        document_id: str,
+        request: GenerationRequest,
+        owner_id: UUID = Depends(current_user),
+    ) -> GenerationResponse:
+        """Generate one citation-grounded artifact from the document's hybrid retrieval index."""
+        safe_document_id = validate_document_id(document_id)
+        document = active_persistence.get_document(safe_document_id, owner_id)
+        if not document:
+            raise HTTPException(status_code=404, detail="Document does not exist")
+        if document.get("status") != "ready":
+            raise HTTPException(status_code=409, detail="Document parsing has not completed")
+        if document.get("embedding_status", "not_started") != "ready":
+            raise HTTPException(status_code=409, detail="Document retrieval index is not ready")
+        try:
+            active_retriever = retriever or HybridRetriever(
+                active_persistence, OpenRouterEmbedder(EmbeddingSettings.from_env())
+            )
+            active_generator = generator or OpenRouterArtifactGenerator(GenerationSettings.from_env())
+            service = GenerationService(active_retriever, active_generator)
+            with trace(
+                "api.generate_document",
+                run_type="chain",
+                inputs={
+                    "document_id": safe_document_id,
+                    "artifact_type": request.artifact_type.value,
+                    "length": request.length.value,
+                },
+                tags=["saral", "api", "generation", "grounded"],
+            ):
+                return service.generate(safe_document_id, owner_id, request)
+        except ConfigurationError as exc:
+            LOGGER.warning(
+                "Generation provider configuration failed",
+                extra={"document_id": safe_document_id, "owner_id": str(owner_id)},
+                exc_info=True,
+            )
+            raise HTTPException(
+                status_code=503, detail="Generation provider is not configured"
+            ) from exc
+        except (GenerationError, RetrievalError) as exc:
+            LOGGER.warning(
+                "Grounded document generation failed",
+                extra={
+                    "document_id": safe_document_id,
+                    "owner_id": str(owner_id),
+                    "error_type": type(exc).__name__,
+                },
+                exc_info=True,
+            )
+            raise HTTPException(
+                status_code=502, detail="Grounded document generation is unavailable"
+            ) from exc
+
+    @app.post(
+        "/v1/documents/{document_id}/conversations/messages",
+        response_model=ConversationResponse,
+    )
+    def respond_to_conversation(
+        document_id: str,
+        request: ConversationMessageRequest,
+        owner_id: UUID = Depends(current_user),
+    ) -> ConversationResponse:
+        """Route one persisted thread message through the Phase 2 grounded workflow."""
+        safe_document_id = validate_document_id(document_id)
+        document = active_persistence.get_document(safe_document_id, owner_id)
+        if not document:
+            raise HTTPException(status_code=404, detail="Document does not exist")
+        if document.get("status") != "ready":
+            raise HTTPException(status_code=409, detail="Document parsing has not completed")
+        if document.get("embedding_status", "not_started") != "ready":
+            raise HTTPException(status_code=409, detail="Document retrieval index is not ready")
+        try:
+            if conversation_service:
+                active_service = conversation_service
+            else:
+                active_retriever = retriever or HybridRetriever(
+                    active_persistence, OpenRouterEmbedder(EmbeddingSettings.from_env())
+                )
+                active_generator = generator or OpenRouterArtifactGenerator(GenerationSettings.from_env())
+                active_service = ConversationService(
+                    active_persistence, GenerationService(active_retriever, active_generator)
+                )
+            with trace(
+                "api.conversation_message",
+                run_type="chain",
+                inputs={"document_id": safe_document_id, "thread_id": str(request.thread_id)},
+                tags=["saral", "api", "conversation", "grounded"],
+            ):
+                return active_service.respond(safe_document_id, owner_id, request)
+        except ConfigurationError as exc:
+            LOGGER.warning(
+                "Conversation provider configuration failed",
+                extra={
+                    "document_id": safe_document_id,
+                    "owner_id": str(owner_id),
+                    "thread_id": str(request.thread_id),
+                },
+                exc_info=True,
+            )
+            raise HTTPException(
+                status_code=503, detail="Generation provider is not configured"
+            ) from exc
+        except (GenerationError, RetrievalError, PersistenceError) as exc:
+            LOGGER.warning(
+                "Grounded document conversation failed",
+                extra={
+                    "document_id": safe_document_id,
+                    "owner_id": str(owner_id),
+                    "thread_id": str(request.thread_id),
+                    "error_type": type(exc).__name__,
+                },
+                exc_info=True,
+            )
+            raise HTTPException(
+                status_code=502, detail="Grounded document conversation is unavailable"
+            ) from exc
 
     @app.get("/v1/documents/{document_id}/assets/{asset_id}")
     def get_asset(

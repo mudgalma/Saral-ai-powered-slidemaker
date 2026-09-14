@@ -33,8 +33,17 @@ import {
   starterThread,
   type SaralMessage,
   type SaralThread,
+  type SaralVisualAsset,
 } from "@/lib/saral-store";
-import { type ParserManifest, uploadPaper } from "@/lib/parser-api";
+import {
+  fetchDocumentAsset,
+  sendConversationMessage,
+  type ConversationResponse,
+  type GenerationRequest,
+  type GenerationResponse,
+  type ParserManifest,
+  uploadPaper,
+} from "@/lib/parser-api";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   BookOpenText,
@@ -62,19 +71,118 @@ const suggestions = [
   "Write a plain-English thread with citations",
 ];
 
-function answerFor(prompt: string, revision: boolean): string {
-  if (revision) {
-    return "### Revised slide 2\n\n**Before**\n- The retriever uses Maximum Inner Product Search over dense passage embeddings.\n\n**After**\n- The system first finds the most relevant passages, then uses them to write a grounded answer. **[p. 4, §3.1]**\n\n**Why it changed**\nI replaced specialist retrieval terminology with a concrete two-step explanation while preserving the original claim and citation.";
-  }
-  return "## 7-slide talk · Graduate students · 5–7 min\n\n### 1. Why retrieval matters\n- Language models can sound confident without grounding.\n- RAG retrieves evidence before generating each response. **[p. 2, §1]**\n\n**Speaker notes**\n1. Frame hallucination as a knowledge-access problem.\n2. Contrast parametric memory with an external index.\n3. Preview the pipeline: *retrieve → condition → generate*.\n\n### 2. The core method\n- A dense retriever ranks passages using $p_\\eta(z\\mid x)$.\n- The generator predicts tokens conditioned on retrieved evidence: $p_\\theta(y_i\\mid x,z,y_{1:i-1})$. **[p. 4, §3]**\n\n**Speaker script**\nRAG combines two kinds of memory. The model retains learned language knowledge, while the retrieval index provides inspectable, updateable evidence. For each input, relevant passages are selected and supplied to the generator, reducing unsupported claims and making provenance visible.";
-}
-
 function parserResultMessage(manifest: ParserManifest): string {
   const { counts, input } = manifest;
   const warnings = manifest.warnings.length
     ? `\n\n**Review notes**\n${manifest.warnings.map((warning) => `- ${warning}`).join("\n")}`
     : "";
   return `## Paper parsed\n\n**${input.original_filename}** is ready for inspection.\n\n- ${counts.pages ?? 0} pages\n- ${counts.pictures ?? 0} figures\n- ${counts.tables ?? 0} tables\n- ${counts.formulas ?? 0} formulas with LaTeX\n- Document ID: \`${manifest.document_id}\`${warnings}`;
+}
+
+function conversationOptions(
+  audience: string,
+  length: string,
+  style: string,
+): Pick<GenerationRequest, "audience" | "length" | "style"> {
+  const outputLength: GenerationRequest["length"] =
+    length === "30 seconds" ? "brief" : length === "90 seconds" ? "standard" : "extended";
+  return {
+    audience,
+    length: outputLength,
+    style,
+  };
+}
+
+type RenderedArtifactMessage = { text: string; visualAssets?: SaralVisualAsset[] };
+
+function generationMessage(result: GenerationResponse): RenderedArtifactMessage {
+  if (result.status === "complete" && result.artifact) {
+    const sources = result.artifact.citations
+      .map((citation) => {
+        const pages = citation.page_numbers.length
+          ? `p. ${citation.page_numbers.join(", ")}`
+          : "page unknown";
+        return `- [${citation.chunk_id}] · ${pages}${citation.heading ? ` · ${citation.heading}` : ""}`;
+      })
+      .join("\n");
+    return {
+      text: `## ${result.artifact.title}\n\n${result.artifact.content}\n\n**Sources**\n${sources}`,
+      visualAssets: result.artifact.visual_assets.map((asset) => ({
+        documentId: result.document_id,
+        assetId: asset.asset_id,
+        sourceChunkId: asset.source_chunk_id,
+        pageNumbers: asset.page_numbers,
+        caption: asset.caption,
+      })),
+    };
+  }
+  return {
+    text: `## Could not safely generate this artifact\n\n${result.grounding.issues.map((issue) => `- ${issue}`).join("\n")}`,
+  };
+}
+
+function conversationMessage(result: ConversationResponse): RenderedArtifactMessage {
+  const version = result.version
+    ? `\n\n---\nVersion ${result.version.version_number}${result.version.delta ? " · delta tracked" : ""}`
+    : "";
+  const message = generationMessage(result.generation);
+  return { ...message, text: `${message.text}${version}` };
+}
+
+function SourceVisual({ asset }: { asset: SaralVisualAsset }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    let objectUrl: string | null = null;
+    void fetchDocumentAsset(asset.documentId, asset.assetId)
+      .then((blob) => {
+        objectUrl = URL.createObjectURL(blob);
+        if (active) setUrl(objectUrl);
+      })
+      .catch(() => {
+        if (active) setUnavailable(true);
+      });
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [asset.assetId, asset.documentId]);
+
+  const page = asset.pageNumbers.length ? `Page ${asset.pageNumbers.join(", ")}` : "Page unknown";
+  return (
+    <figure className="overflow-hidden rounded-md border border-border bg-card">
+      {url ? (
+        <img
+          alt={asset.caption ?? "Selected source visual"}
+          className="max-h-72 w-full object-contain"
+          src={url}
+        />
+      ) : (
+        <div className="flex h-28 items-center justify-center text-xs text-muted-foreground">
+          {unavailable ? "Source visual unavailable" : "Loading source visual…"}
+        </div>
+      )}
+      <figcaption className="border-t border-border px-3 py-2 text-xs leading-5 text-muted-foreground">
+        {asset.caption ?? "Selected source visual"} · {page} · {asset.sourceChunkId}
+      </figcaption>
+    </figure>
+  );
+}
+
+function SourceVisuals({ assets }: { assets: SaralVisualAsset[] }) {
+  if (!assets.length) return null;
+  return (
+    <section className="mt-4 space-y-3" aria-label="Retrieved source visuals">
+      <h3 className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">
+        Retrieved source visuals
+      </h3>
+      {assets.map((asset) => (
+        <SourceVisual asset={asset} key={asset.assetId} />
+      ))}
+    </section>
+  );
 }
 
 function formatBytes(bytes: number): string {
@@ -212,26 +320,63 @@ export function SaralWorkspace({ threadId }: SaralWorkspaceProps) {
       }
       return;
     }
-    await new Promise((resolve) => window.setTimeout(resolve, 650));
-    const revision = /less technical|dumb down|simpl|visual|revise|change/i.test(text);
-    const assistantMessage: SaralMessage = {
-      id: crypto.randomUUID(),
-      role: "assistant",
-      kind: revision ? "revision" : "answer",
-      text: answerFor(text, revision),
-    };
-    persist((current) =>
-      current.map((thread) =>
-        thread.id === targetId
-          ? {
-              ...thread,
-              updatedAt: Date.now(),
-              messages: [...thread.messages, assistantMessage],
-            }
-          : thread,
-      ),
-    );
-    setStatus("ready");
+    if (!source) {
+      const assistantMessage: SaralMessage = {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        kind: "answer",
+        text: "## Upload a paper first\n\nSARAL can generate only from a parsed, retrieval-ready paper.",
+      };
+      persist((current) =>
+        current.map((thread) =>
+          thread.id === targetId
+            ? { ...thread, updatedAt: Date.now(), messages: [...thread.messages, assistantMessage] }
+            : thread,
+        ),
+      );
+      setStatus("ready");
+      return;
+    }
+    try {
+      const result = await sendConversationMessage(
+        source.document_id,
+        targetId,
+        text,
+        conversationOptions(audience, length, style),
+      );
+      const rendered = conversationMessage(result);
+      const assistantMessage: SaralMessage = {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        kind: "answer",
+        text: rendered.text,
+        visualAssets: rendered.visualAssets,
+      };
+      persist((current) =>
+        current.map((thread) =>
+          thread.id === targetId
+            ? { ...thread, updatedAt: Date.now(), messages: [...thread.messages, assistantMessage] }
+            : thread,
+        ),
+      );
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : "Grounded generation failed.";
+      const assistantMessage: SaralMessage = {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        kind: "answer",
+        text: `## Could not generate the artifact\n\n${messageText}`,
+      };
+      persist((current) =>
+        current.map((thread) =>
+          thread.id === targetId
+            ? { ...thread, updatedAt: Date.now(), messages: [...thread.messages, assistantMessage] }
+            : thread,
+        ),
+      );
+    } finally {
+      setStatus("ready");
+    }
   };
 
   return (
@@ -386,6 +531,7 @@ export function SaralWorkspace({ threadId }: SaralWorkspaceProps) {
                           }
                         >
                           <MessageResponse>{message.text}</MessageResponse>
+                          {message.visualAssets && <SourceVisuals assets={message.visualAssets} />}
                         </MessageContent>
                         {message.kind === "revision" && (
                           <div className="flex items-center gap-2 text-xs text-muted-foreground">

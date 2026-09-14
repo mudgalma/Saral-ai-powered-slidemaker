@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Sequence
 
@@ -73,6 +74,10 @@ class HybridDocumentChunker:
         tags=["saral", "chunking", "validation"],
     )
     def chunk_document(self, document_id: str, document: Any) -> ChunkingResult:
+        # Build once before the loop: caption-text-ref → figure asset ID.
+        # HybridChunker never puts #/pictures/ refs in doc_items, so figures are
+        # only reachable via the #/texts/ refs of their captions.
+        figure_caption_map = _build_figure_caption_map(document_id, document)
         chunks: List[DocumentChunk] = []
         for index, raw_chunk in enumerate(self._chunker.chunk(document)):
             meta = raw_chunk.meta
@@ -84,7 +89,15 @@ class HybridDocumentChunker:
             contextualized = self._chunker.contextualize(raw_chunk)
             token_count = self._count_tokens(contextualized)
             labels = _unique(str(getattr(item, "label", "unknown")) for item in items)
-            assets = [_asset_id(document_id, ref) for ref in refs if _asset_kind(ref)]
+            # Direct structural refs cover tables (and hypothetically pictures if ever
+            # present in doc_items).  Figure assets come via the caption-ref lookup.
+            direct_assets = [_asset_id(document_id, ref) for ref in refs if _asset_kind(ref)]
+            figure_assets = [figure_caption_map[ref] for ref in refs if ref in figure_caption_map]
+            assets = _unique(direct_assets + figure_assets)
+            chunk_captions = list(getattr(meta, "captions", []) or [])
+            headings = _clean_headings(
+                list(getattr(meta, "headings", []) or []), chunk_captions, labels
+            )
             chunks.append(
                 DocumentChunk(
                     chunk_id=f"{document_id}:{CHUNKER_VERSION}:{index:06d}",
@@ -92,8 +105,8 @@ class HybridDocumentChunker:
                     chunk_index=index,
                     text=raw_chunk.text,
                     contextualized_text=contextualized,
-                    headings=list(getattr(meta, "headings", []) or []),
-                    captions=list(getattr(meta, "captions", []) or []),
+                    headings=headings,
+                    captions=chunk_captions,
                     source_refs=refs,
                     page_numbers=sorted(
                         {int(item["page_number"]) for item in provenance if item.get("page_number")}
@@ -195,3 +208,121 @@ def _asset_id(document_id: str, ref: str) -> str:
     kind = _asset_kind(ref) or "asset"
     ordinal = int(ref.rsplit("/", 1)[-1]) + 1
     return f"{document_id}:{kind}:{kind}_{ordinal:04d}.png"
+
+
+# ── Figure-asset linkage ─────────────────────────────────────────────────────
+
+
+def _build_figure_caption_map(document_id: str, document: Any) -> Dict[str, str]:
+    r"""Return a mapping from each figure's caption text-ref to its asset ID.
+
+    ``HybridChunker`` never places ``#/pictures/N`` refs inside a chunk's
+    ``doc_items``; figures are only reachable through the ``#/texts/N`` ref of
+    their associated caption item.  By walking the document's ``PictureItem``\s
+    once before chunking, we build a lookup that lets ``chunk_document`` inject
+    the rendered-figure asset ID into any chunk whose ``source_refs`` include a
+    known caption ref.  The ordinal matches ``docling_service._export`` so the
+    asset ID is consistent with what is stored in ``figures.json``.
+    """
+    try:
+        from docling_core.types.doc import PictureItem
+    except ImportError:  # pragma: no cover - isolated dependency boundary
+        return {}
+    mapping: Dict[str, str] = {}
+    for element, _level in document.iterate_items():
+        if not isinstance(element, PictureItem):
+            continue
+        ref = _self_ref(element)
+        if not ref:
+            continue
+        asset_id = _asset_id(document_id, ref)
+        for caption_ref in list(getattr(element, "captions", []) or []):
+            cref = str(getattr(caption_ref, "cref", caption_ref) or "")
+            if cref:
+                mapping[cref] = asset_id
+    return mapping
+
+
+# ── Heading cleanup ───────────────────────────────────────────────────────────
+
+# Matches numbered section headers: "3", "3.2", "3.2.1 Title", etc.
+_SECTION_NUMBER_RE = re.compile(r"^\d+(\.[\d]+)*[\s\.]")
+
+# Well-known unnumbered section names in academic papers.
+_KNOWN_UNNUMBERED_SECTIONS = frozenset(
+    {
+        "abstract",
+        "introduction",
+        "conclusion",
+        "conclusions",
+        "references",
+        "appendix",
+        "acknowledgements",
+        "acknowledgments",
+        "related work",
+        "background",
+        "discussion",
+        "methods",
+        "methodology",
+    }
+)
+
+
+def _clean_headings(
+    headings: List[str], captions: List[str], content_types: List[str]
+) -> List[str]:
+    """Filter figure-label and axis-text artifacts from the heading list.
+
+    Two sequential filter passes:
+
+    1. **Caption-overlap drop** — any heading string that appears verbatim in
+       the chunk's ``captions`` list is a caption that Docling simultaneously
+       classified as a heading; drop it.
+
+    2. **Figure-adjacent noise drop** — when ``caption`` or ``picture`` appears
+       in ``content_types`` the chunk is known to be figure-adjacent.  Any
+       remaining heading that neither matches the section-number prefix pattern
+       (e.g. ``3.2.1``) nor is a recognised unnumbered section name is treated
+       as a figure sub-label or axis-text artifact and dropped.  This pass is
+       skipped for purely narrative chunks so legitimate unnumbered headings
+       (e.g. ``Abstract``) are never discarded.
+    """
+    if not headings:
+        return headings
+    caption_set = set(captions)
+    has_figure_content = any(t in content_types for t in ("caption", "picture"))
+    cleaned: List[str] = []
+    for h in headings:
+        if h in caption_set:
+            continue  # literal caption text leaked into heading — drop
+        if has_figure_content:
+            if (
+                not _SECTION_NUMBER_RE.match(h)
+                and h.strip().lower() not in _KNOWN_UNNUMBERED_SECTIONS
+            ):
+                continue  # figure sub-label or axis-text artifact — drop
+        cleaned.append(h)
+    return cleaned
+
+
+# ── Table-chunk contract for generation callers ───────────────────────────────
+
+
+def is_table_chunk(chunk: DocumentChunk) -> bool:
+    """Return ``True`` when this chunk is dominated by structural table content.
+
+    Table chunks carry flattened cell text that loses column context when the
+    table is split across the token budget.  Callers building narrative
+    generation prompts should exclude these chunks and reference the
+    ``asset_ids`` image (the full-table crop) directly instead.
+    """
+    return "table" in chunk.content_types
+
+
+def narrative_chunks(chunks: Sequence[DocumentChunk]) -> List[DocumentChunk]:
+    """Return only the chunks that are safe as narrative generation context.
+
+    Removes table-dominated chunks (prefer their ``asset_ids`` images) while
+    preserving text, formula, caption, and mixed-content chunks in source order.
+    """
+    return [c for c in chunks if not is_table_chunk(c)]

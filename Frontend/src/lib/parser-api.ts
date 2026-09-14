@@ -15,6 +15,52 @@ export type ParserManifest = {
   embedding_status: "not_started" | "queued" | "processing" | "ready" | "failed";
 };
 
+export type GenerationRequest = {
+  artifact_type: "answer" | "summary" | "script" | "slide_outline";
+  audience: string;
+  length: "brief" | "standard" | "extended";
+  style: string;
+  user_instruction: string;
+};
+
+export type GenerationResponse = {
+  document_id: string;
+  status: "complete" | "flagged" | "unsupported";
+  artifact: null | {
+    artifact_type: GenerationRequest["artifact_type"];
+    title: string;
+    content: string;
+    citations: Array<{ chunk_id: string; page_numbers: number[]; heading: string | null }>;
+    visual_assets: Array<{
+      asset_id: string;
+      source_chunk_id: string;
+      page_numbers: number[];
+      caption: string | null;
+    }>;
+  };
+  grounding: { passed: boolean; issues: string[]; cited_chunk_ids: string[] };
+  attempts: number;
+};
+
+export type ConversationResponse = {
+  thread_id: string;
+  document_id: string;
+  intent: {
+    branch: "new_generation" | "revision" | "question";
+    artifact_type: GenerationRequest["artifact_type"] | "tweet_thread";
+    audience: string;
+    length: GenerationRequest["length"];
+    style: string;
+    is_revision: boolean;
+  };
+  generation: GenerationResponse;
+  version: null | {
+    id: string;
+    version_number: number;
+    parent_version_id: string | null;
+    delta: string | null;
+  };
+};
 
 type AcceptedDocument = {
   document_id: string;
@@ -69,6 +115,60 @@ export async function uploadPaper(part: UploadPart): Promise<ParserManifest> {
   }
   const accepted = await readJson<AcceptedDocument>(response);
   return pollDocument(accepted.document_id, file.size);
+}
+
+export async function generateArtifact(
+  documentId: string,
+  request: GenerationRequest,
+): Promise<GenerationResponse> {
+  let response: Response;
+  try {
+    response = await fetch(`${parserApiBaseUrl}/v1/documents/${documentId}/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(request),
+    });
+  } catch {
+    throw new Error("Could not reach the grounded-generation service.");
+  }
+  return readJson<GenerationResponse>(response);
+}
+
+export async function sendConversationMessage(
+  documentId: string,
+  threadId: string,
+  message: string,
+  options: Pick<GenerationRequest, "audience" | "length" | "style">,
+): Promise<ConversationResponse> {
+  let response: Response;
+  try {
+    response = await fetch(
+      `${parserApiBaseUrl}/v1/documents/${documentId}/conversations/messages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ thread_id: threadId, message, ...options }),
+      },
+    );
+  } catch {
+    throw new Error("Could not reach the document-conversation service.");
+  }
+  return readJson<ConversationResponse>(response);
+}
+
+export async function fetchDocumentAsset(documentId: string, assetId: string): Promise<Blob> {
+  let response: Response;
+  try {
+    response = await fetch(`${parserApiBaseUrl}/v1/documents/${documentId}/assets/${assetId}`, {
+      headers: authHeaders(),
+    });
+  } catch {
+    throw new Error("Could not retrieve the selected source visual.");
+  }
+  if (!response.ok) {
+    throw new Error("The selected source visual is unavailable.");
+  }
+  return response.blob();
 }
 
 async function pollDocument(documentId: string, sizeBytes: number): Promise<ParserManifest> {

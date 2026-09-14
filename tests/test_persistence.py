@@ -1,4 +1,7 @@
-from uuid import UUID
+from types import SimpleNamespace
+from uuid import UUID, uuid4
+
+import pytest
 
 from saral_parser.models import DocumentChunk
 from saral_parser.persistence import SupabasePersistence
@@ -34,3 +37,28 @@ def test_chunk_row_serializes_grounding_and_asset_relationships():
     assert row["source_refs"] == ["#/texts/4"]
     assert row["asset_ids"] == ["asset-1"]
     assert row["owner_id"] == str(owner)
+
+
+@pytest.mark.parametrize("rpc_data", [{"version_number": 1}, [{"version_number": 1}]])
+def test_create_artifact_version_accepts_object_or_list_rpc_response(rpc_data):
+    class FakeClient:
+        def rpc(self, name, params):
+            assert name == "create_artifact_version"
+            assert params["p_document_id"] == "doc_11111111_0123456789abcdef"
+            return SimpleNamespace(execute=lambda: SimpleNamespace(data=rpc_data))
+
+    owner = UUID("11111111-1111-4111-8111-111111111111")
+    service = object.__new__(SupabasePersistence)
+    service._client = FakeClient()
+    service._execute = lambda operation: operation()
+
+    result = service.create_artifact_version(
+        uuid4(),
+        "doc_11111111_0123456789abcdef",
+        owner,
+        {"title": "Version one"},
+        None,
+        None,
+    )
+
+    assert result == {"version_number": 1}

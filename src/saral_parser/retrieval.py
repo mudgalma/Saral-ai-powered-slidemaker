@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Sequence
 from uuid import UUID
 
-from .embeddings import OpenAIEmbedder, vector_literal
+from .embeddings import OpenRouterEmbedder, vector_literal
 from .exceptions import RetrievalError
 from .models import RetrievedChunk, RetrievalResponse
 from .persistence import SupabasePersistence
@@ -21,7 +21,7 @@ _RRF_K = 60
 class HybridRetriever:
     """Retrieve one document through parallel dense and sparse searches."""
 
-    def __init__(self, persistence: SupabasePersistence, embedder: OpenAIEmbedder) -> None:
+    def __init__(self, persistence: SupabasePersistence, embedder: OpenRouterEmbedder) -> None:
         self.persistence = persistence
         self.embedder = embedder
 

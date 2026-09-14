@@ -1,6 +1,6 @@
 # SARAL document parser
 
-Architecture diagrams: [docs/architecture.md](docs/architecture.md).
+Architecture diagrams: [overview](docs/architecture.md) and [full architecture + LLD](docs/full-architecture.md).
 
 SARAL accepts one research-paper PDF at a time, validates it, converts it with Docling, and applies Docling's `HybridChunker`. The production path persists private files in Supabase Storage, queryable metadata and ordered chunks in Supabase Postgres, runs parsing and embedding separately with Celery/Redis, and performs hybrid pgvector + Postgres full-text retrieval with provenance.
 
@@ -85,9 +85,11 @@ server-only values (never use the service-role key in `Frontend/`):
 export SUPABASE_URL=https://PROJECT.supabase.co
 export SUPABASE_SERVICE_ROLE_KEY=server-only-secret
 export SARAL_REDIS_URL=redis://127.0.0.1:6379/0
-export OPENAI_API_KEY=server-only-secret
+export OPENROUTER_API_KEY=server-only-secret
 # Optional embedding default
-export SARAL_EMBEDDING_MODEL=text-embedding-3-small
+export SARAL_OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+export SARAL_EMBEDDING_MODEL=openai/text-embedding-3-small
+export SARAL_GENERATION_MODEL=openai/gpt-4.1-mini
 export LANGSMITH_TRACING=true
 export LANGSMITH_API_KEY=server-only-secret
 export LANGSMITH_PROJECT=saral-parser
@@ -165,6 +167,34 @@ curl -X POST http://127.0.0.1:8000/v1/documents/doc_0123456789abcdef/retrieve \
 The response returns the top fused chunks with chunk IDs, text, headings, page numbers, source
 references, full provenance, figure/table asset IDs, and dense/sparse ranks. This is the grounded
 context contract for the next generation milestone.
+
+Generate a citation-grounded artifact from that existing hybrid retrieval index:
+
+```bash
+curl -X POST http://127.0.0.1:8000/v1/documents/doc_0123456789abcdef/generate \
+  -H "Authorization: Bearer $SUPABASE_USER_ACCESS_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"artifact_type":"script","audience":"Policymakers","length":"standard", "style":"Plain English", "user_instruction":"Create a 90-second script about the method."}'
+```
+
+`POST /generate` retrieves up to six owner-scoped chunks, creates an `EvidencePack`, asks the
+configured OpenRouter model for JSON-schema constrained output, then validates word budget, visible
+chunk-ID citations, and claim-to-evidence mappings. It makes at most one corrective regeneration;
+otherwise it returns a safe `flagged` response without an artifact. See
+[`docs/generation-workflow.md`](docs/generation-workflow.md) for the workflow and documentation
+traceability.
+
+For a persistent conversational turn (new artifact, revision, or document question), send the
+browser thread UUID and optional UI choices. The service records conversation state and immutable
+artifact versions server-side, resolves `#N` and “this slide” revision references, then retrieves
+document evidence again before creating a version delta:
+
+```bash
+curl -X POST http://127.0.0.1:8000/v1/documents/doc_0123456789abcdef/conversations/messages \
+  -H "Authorization: Bearer $SUPABASE_USER_ACCESS_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"thread_id":"22222222-2222-4222-8222-222222222222", "message":"Make #1 shorter", "audience":"Policymakers", "length":"brief", "style":"Plain English"}'
+```
 
 ## Connected frontend upload
 

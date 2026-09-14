@@ -40,3 +40,6 @@ class EmbeddingError(ParserError):
 class RetrievalError(ParserError):
     """Raised when hybrid retrieval cannot return a safe result."""
 
+
+class GenerationError(ParserError):
+    """Raised when grounded artifact generation cannot complete safely."""
