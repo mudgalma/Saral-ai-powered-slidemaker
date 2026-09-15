@@ -312,3 +312,17 @@ The test suite is deliberately labeled: it uses fake services/documents for HTTP
 - No classification or VLM description run was performed; those options are configurable and their generated descriptions stay separate from authored captions.
 - Document model downloads and local VLM/OCR availability depend on the installed Docling extras and host environment.
 # Saral-ai-powered-slidemaker
+
+## Evaluation Results
+
+The evaluation was performed on the `saral-eval-v1` dataset on LangSmith (Test Run: `saral-gen-d3d4f186` | Commit: `5afba74`):
+
+| Metric | Score |
+| ------ | ----- |
+| **ROUGE-L** | 0.75 |
+| **BERTScore** | 0.91 |
+| **Citation Coverage** | 0.91 |
+| **Claim Overlap** | 0.15 |
+| **Combined Score** | 0.68 |
+
+*Model: GPT-4o-mini / gpt-4.1-mini config*
