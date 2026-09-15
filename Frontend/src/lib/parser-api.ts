@@ -16,11 +16,26 @@ export type ParserManifest = {
 };
 
 export type GenerationRequest = {
-  artifact_type: "answer" | "summary" | "script" | "slide_outline";
+  artifact_type:
+    "answer" | "summary" | "script" | "slide_outline" | "tweet_thread" | "linkedin_post";
   audience: string;
   length: "brief" | "standard" | "extended";
   style: string;
   user_instruction: string;
+  slide_count?: number | null;
+};
+
+export type SlideDeck = {
+  title: string;
+  slides: Array<{
+    slide_number: number;
+    role: string;
+    header_takeaway: string;
+    bullets: string[];
+    speaker_notes: string[];
+    spoken_script: string;
+    provenance: Array<{ claim: string; citation_ids: string[] }>;
+  }>;
 };
 
 export type GenerationResponse = {
@@ -37,6 +52,7 @@ export type GenerationResponse = {
       page_numbers: number[];
       caption: string | null;
     }>;
+    deck: SlideDeck | null;
   };
   grounding: { passed: boolean; issues: string[]; cited_chunk_ids: string[] };
   attempts: number;
@@ -47,7 +63,7 @@ export type ConversationResponse = {
   document_id: string;
   intent: {
     branch: "new_generation" | "revision" | "question";
-    artifact_type: GenerationRequest["artifact_type"] | "tweet_thread";
+    artifact_type: GenerationRequest["artifact_type"];
     audience: string;
     length: GenerationRequest["length"];
     style: string;

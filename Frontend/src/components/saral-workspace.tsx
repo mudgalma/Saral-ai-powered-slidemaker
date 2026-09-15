@@ -17,6 +17,7 @@ import {
   usePromptInputAttachments,
 } from "@/components/ai-elements/prompt-input";
 import { Button } from "@/components/ui/button";
+import { SlideDeckPreview } from "@/components/slides/slide-deck-preview";
 import backgroundArt from "@/assets/background.jpg.asset.json";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
@@ -93,7 +94,11 @@ function conversationOptions(
   };
 }
 
-type RenderedArtifactMessage = { text: string; visualAssets?: SaralVisualAsset[] };
+type RenderedArtifactMessage = {
+  text: string;
+  visualAssets?: SaralVisualAsset[];
+  deck?: NonNullable<GenerationResponse["artifact"]>["deck"];
+};
 
 function generationMessage(result: GenerationResponse): RenderedArtifactMessage {
   if (result.status === "complete" && result.artifact) {
@@ -106,7 +111,7 @@ function generationMessage(result: GenerationResponse): RenderedArtifactMessage 
       })
       .join("\n");
     return {
-      text: `## ${result.artifact.title}\n\n${result.artifact.content}\n\n**Sources**\n${sources}`,
+      text: `## ${result.artifact.title}\n\n${result.artifact.deck ? `${result.artifact.deck.slides.length}-slide presentation ready. Use the preview controls or ask SARAL to revise a specific slide.` : result.artifact.content}\n\n**Sources**\n${sources}`,
       visualAssets: result.artifact.visual_assets.map((asset) => ({
         documentId: result.document_id,
         assetId: asset.asset_id,
@@ -114,6 +119,7 @@ function generationMessage(result: GenerationResponse): RenderedArtifactMessage 
         pageNumbers: asset.page_numbers,
         caption: asset.caption,
       })),
+      deck: result.artifact.deck,
     };
   }
   return {
@@ -236,6 +242,14 @@ export function SaralWorkspace({ threadId }: SaralWorkspaceProps) {
   useEffect(() => textareaRef.current?.focus(), [threadId, status]);
   useEffect(() => setThreads(loadThreads()), []);
 
+  // Restore the source manifest from the active thread whenever the thread changes
+  // or threads are first loaded from localStorage. This keeps the document link alive
+  // across page refreshes and thread switches without re-uploading the paper.
+  useEffect(() => {
+    const thread = threads.find((t) => t.id === threadId);
+    setSource(thread?.source ?? null);
+  }, [threadId, threads]);
+
   const persist = useCallback((updater: (current: SaralThread[]) => SaralThread[]) => {
     setThreads((current) => {
       const next = updater(current);
@@ -287,6 +301,13 @@ export function SaralWorkspace({ threadId }: SaralWorkspaceProps) {
       try {
         const manifest = await uploadPaper(paper);
         setSource(manifest);
+        // Persist the manifest into the thread so the document link survives
+        // page refreshes and thread switches.
+        persist((current) =>
+          current.map((thread) =>
+            thread.id === targetId ? { ...thread, source: manifest } : thread,
+          ),
+        );
         const parserMessage: SaralMessage = {
           id: crypto.randomUUID(),
           role: "assistant",
@@ -351,6 +372,7 @@ export function SaralWorkspace({ threadId }: SaralWorkspaceProps) {
         kind: "answer",
         text: rendered.text,
         visualAssets: rendered.visualAssets,
+        deck: rendered.deck ?? undefined,
       };
       persist((current) =>
         current.map((thread) =>
@@ -531,7 +553,15 @@ export function SaralWorkspace({ threadId }: SaralWorkspaceProps) {
                           }
                         >
                           <MessageResponse>{message.text}</MessageResponse>
-                          {message.visualAssets && <SourceVisuals assets={message.visualAssets} />}
+                          {message.deck && (
+                            <SlideDeckPreview
+                              deck={message.deck}
+                              visualAssets={message.visualAssets ?? []}
+                            />
+                          )}
+                          {message.visualAssets && !message.deck && (
+                            <SourceVisuals assets={message.visualAssets} />
+                          )}
                         </MessageContent>
                         {message.kind === "revision" && (
                           <div className="flex items-center gap-2 text-xs text-muted-foreground">

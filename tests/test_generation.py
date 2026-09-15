@@ -19,6 +19,9 @@ from saral_parser.models import (
     GroundedClaim,
     RetrievedChunk,
     RetrievalResponse,
+    SlideDeckDraft,
+    SlideDraft,
+    SlideProvenance,
 )
 
 OWNER_ID = UUID("11111111-1111-4111-8111-111111111111")
@@ -53,6 +56,25 @@ def _valid_draft() -> GeneratedArtifactDraft:
     )
 
 
+def _valid_slide_deck(count: int = 5) -> SlideDeckDraft:
+    claim = "The system retrieves evidence before generation."
+    return SlideDeckDraft(
+        title="Grounded presentation",
+        slides=[
+            SlideDraft(
+                slide_number=index,
+                role="results" if index == 4 else "presentation narrative",
+                header_takeaway=f"Slide {index} is grounded in retrieved evidence",
+                bullets=[claim],
+                speaker_notes=["Explain the evidence.", "State the implication.", "Transition onward."],
+                spoken_script=claim,
+                provenance=[SlideProvenance(claim=claim, citation_ids=["chunk-1"])],
+            )
+            for index in range(1, count + 1)
+        ],
+    )
+
+
 class FakeRetriever:
     def retrieve(self, document_id, owner_id, question, top_k):
         assert document_id == DOCUMENT_ID
@@ -67,7 +89,7 @@ class SequencedGenerator:
         self.drafts = list(drafts)
         self.prompts = []
 
-    def generate(self, prompt, max_output_tokens):
+    def generate(self, prompt, max_output_tokens, response_model=GeneratedArtifactDraft):
         self.prompts.append(prompt)
         return self.drafts.pop(0)
 
@@ -128,7 +150,8 @@ def test_slide_generation_uses_section_queries_and_returns_linked_visual_assets(
             )
 
     retriever = SlideRetriever()
-    service = GenerationService(retriever, SequencedGenerator([_valid_draft()]))
+    generator = SequencedGenerator([_valid_slide_deck()])
+    service = GenerationService(retriever, generator)
     response = service.generate(
         DOCUMENT_ID,
         OWNER_ID,
@@ -142,8 +165,11 @@ def test_slide_generation_uses_section_queries_and_returns_linked_visual_assets(
     assert len(retriever.questions) == 5
     assert all(top_k == 4 for _, top_k in retriever.questions)
     assert response.artifact is not None
+    assert response.artifact.deck is not None
+    assert len(response.artifact.deck.slides) == 5
     assert response.artifact.visual_assets[0].asset_id == "figure-1"
     assert response.artifact.visual_assets[0].source_chunk_id == "chunk-4"
+    assert "exactly 5 slides" in generator.prompts[0]
 
 
 def test_generation_regenerates_once_then_flags_an_unsupported_draft():

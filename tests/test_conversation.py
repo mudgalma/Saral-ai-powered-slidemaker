@@ -82,7 +82,7 @@ class SequencedGenerator:
         self.calls = 0
         self.prompts = []
 
-    def generate(self, prompt, max_output_tokens):
+    def generate(self, prompt, max_output_tokens, response_model=GeneratedArtifactDraft):
         self.calls += 1
         self.prompts.append(prompt)
         text = f"Evidence supports version {'one' if self.calls == 1 else 'two'}."
@@ -109,12 +109,12 @@ def test_conversation_routes_new_generation_then_revision_and_persists_delta():
     first = service.respond(
         DOCUMENT_ID,
         OWNER_ID,
-        ConversationMessageRequest(thread_id=THREAD_ID, message="Create a slide deck for policymakers"),
+        ConversationMessageRequest(thread_id=THREAD_ID, message="Create a script for policymakers"),
     )
     second = service.respond(
         DOCUMENT_ID,
         OWNER_ID,
-        ConversationMessageRequest(thread_id=THREAD_ID, message="Make this slide shorter"),
+        ConversationMessageRequest(thread_id=THREAD_ID, message="Make this script shorter"),
     )
 
     assert first.intent.branch is ConversationBranch.NEW_GENERATION

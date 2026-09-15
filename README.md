@@ -311,3 +311,4 @@ The test suite is deliberately labeled: it uses fake services/documents for HTTP
 - No OCR run was performed for the supplied born-digital paper. A scanned paper needs a separate OCR-enabled run and review.
 - No classification or VLM description run was performed; those options are configurable and their generated descriptions stay separate from authored captions.
 - Document model downloads and local VLM/OCR availability depend on the installed Docling extras and host environment.
+# Saral-ai-powered-slidemaker

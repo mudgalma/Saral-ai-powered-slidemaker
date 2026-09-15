@@ -1,0 +1,1134 @@
+[
+  {
+    "id": "rag_v1_script_90s_general",
+    "artifact_type": "script",
+    "request": {
+      "task": "Generate a 90-second explanation of the paper.",
+      "audience": "general",
+      "length": "90s",
+      "style": "plain-English"
+    },
+    "gold_output": {
+      "title": "What is RAG?",
+      "script": "Retrieval-Augmented Generation, or RAG, combines a language generator with an external collection of documents. The paper argues that pretrained language models can store a lot of factual knowledge, but they can be difficult to update, difficult to inspect, and can produce hallucinations. RAG adds a non-parametric memory that can be searched for relevant information. In the paper, that memory is a dense vector index of Wikipedia, and a neural retriever based on Dense Passage Retrieval selects relevant passages. A BART sequence-to-sequence generator then uses the input together with the retrieved passage to produce the output. The authors study two variants. RAG-Sequence uses the same retrieved document for the whole output, while RAG-Token can use different documents for different output tokens. Across knowledge-intensive tasks, the authors report strong results, including state-of-the-art results on three open-domain question-answering tasks. They also report that RAG generates more specific, diverse, and factual language than a parametric-only BART baseline. A key practical advantage is that the external index can be replaced to update the model's accessible knowledge without retraining the generator."
+    },
+    "gold_claims": [
+      {
+        "id": "c1",
+        "text": "RAG combines parametric and non-parametric memory for generation.",
+        "source": [
+          "p1 abstract",
+          "p2 introduction"
+        ]
+      },
+      {
+        "id": "c2",
+        "text": "The non-parametric memory is a dense vector index of Wikipedia.",
+        "source": [
+          "p1 abstract",
+          "p2 introduction"
+        ]
+      },
+      {
+        "id": "c3",
+        "text": "The retriever is based on DPR and the generator is BART.",
+        "source": [
+          "p2 introduction",
+          "p3 methods"
+        ]
+      },
+      {
+        "id": "c4",
+        "text": "RAG-Sequence uses one document for the whole sequence; RAG-Token can use different documents per token.",
+        "source": [
+          "p3 methods"
+        ]
+      },
+      {
+        "id": "c5",
+        "text": "RAG achieved state-of-the-art results on three open-domain QA tasks.",
+        "source": [
+          "p1 abstract",
+          "p6 results"
+        ]
+      },
+      {
+        "id": "c6",
+        "text": "The paper reports more specific, diverse, and factual generation than the BART baseline.",
+        "source": [
+          "p1 abstract",
+          "p6 results",
+          "p8 results"
+        ]
+      },
+      {
+        "id": "c7",
+        "text": "The external index can be replaced to update accessible knowledge without retraining.",
+        "source": [
+          "p7 results",
+          "p9 discussion"
+        ]
+      }
+    ],
+    "source_policy": "Every factual statement must be supported by this paper; no outside facts.",
+    "dataset_version": "saral-ground-truth-v1",
+    "source_paper": {
+      "title": "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
+      "arxiv": "2005.11401v4",
+      "authors": "Patrick Lewis et al.",
+      "source_constraint": "Use only the uploaded paper as factual evidence."
+    },
+    "evaluation_notes": "",
+    "evaluation": {
+      "reference_based": [
+        "ROUGE-L",
+        "BERTScore"
+      ],
+      "grounding": [
+        "claim_evidence_overlap",
+        "citation_provenance"
+      ],
+      "human": [
+        "audience_appropriateness",
+        "factuality",
+        "helpfulness"
+      ],
+      "important_note": "Reference outputs are valid human-authored targets, not the only possible correct outputs."
+    }
+  },
+  {
+    "id": "rag_v1_script_5min_graduate",
+    "artifact_type": "script",
+    "request": {
+      "task": "Give a 5-minute technical talk explaining the RAG method, training, variants, and results.",
+      "audience": "graduate students",
+      "length": "5min",
+      "style": "technical"
+    },
+    "gold_output": {
+      "title": "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
+      "script": "The paper introduces Retrieval-Augmented Generation, or RAG, as a general-purpose way to combine pretrained parametric memory with an explicit non-parametric memory. The motivation is that pretrained language models can store substantial factual knowledge, but their knowledge is difficult to revise or inspect, and they may hallucinate. Earlier retrieval-augmented approaches such as REALM and ORQA had explored differentiable retrieval but were focused on extractive open-domain question answering. RAG brings retrieval into sequence-to-sequence generation.\n\nThe architecture has two main components. First is the retriever p_eta(z|x), implemented using Dense Passage Retrieval. DPR uses a BERT-based query encoder and a BERT-based document encoder. The dense representations are compared using maximum inner product search to obtain the top-k documents. Second is the generator p_theta(y_i|x,z,y_1:i-1), implemented with BART-large. The original input and retrieved passage are concatenated and supplied to BART. The retrieved document is treated as a latent variable, so the model marginalizes over the top retrieved documents rather than selecting one document as a permanently correct answer.\n\nThe paper proposes two formulations. RAG-Sequence assumes that one retrieved document is responsible for the complete generated sequence. Its probability is approximated by summing the generator probability over the top-k retrieved documents, weighted by the retriever probability. RAG-Token instead allows a different latent document for each output token. This gives the model the ability to combine information from multiple retrieved documents. The authors jointly train the retriever and generator from input-output pairs without direct supervision over which document should be retrieved. They optimize the negative marginal log-likelihood, keep the document encoder and index fixed, and fine-tune the query encoder and BART generator.\n\nFor experiments, the authors use a December 2018 Wikipedia dump. Articles are divided into disjoint 100-word chunks, producing 21 million documents. They build a FAISS maximum-inner-product index and retrieve documents for each query. The evaluation covers open-domain QA, abstractive QA on MS-MARCO, Jeopardy question generation, and FEVER fact verification.\n\nOn open-domain QA, RAG-Sequence reaches 44.5 Exact Match on Natural Questions, 45.2 on WebQuestions, and 52.2 on CuratedTrec; RAG-Token reaches 44.1, 45.5, and 50.0 respectively. For TriviaQA, the reported scores depend on the test setup: RAG-Sequence obtains 56.8 on the standard test and 68.0 on the TQA-Wiki setup. The authors report state-of-the-art results on the four open-domain QA tasks considered, with the qualification that the TQA claim is for the T5-comparable split.\n\nFor MS-MARCO generation, RAG-Sequence obtains a BLEU-1 score of 44.2 compared with 41.6 for BART. The paper reports that RAG generations hallucinate less and are factually correct more often than BART. For Jeopardy question generation, RAG-Token has a Q-BLEU-1 score of 22.2, compared with 19.7 for BART. Human evaluators preferred RAG over BART on factuality in 42.7% of cases versus 7.1% for BART, and also found RAG more specific in the pairwise evaluation.\n\nThe paper also studies retrieval ablations. Learned retrieval improves results over a frozen retriever across the reported tasks. BM25 performs best on FEVER, which the authors suggest may be because FEVER claims are heavily entity-centric and therefore well suited to word-overlap retrieval. The authors also demonstrate index hot-swapping: replacing a 2016 Wikipedia index with a 2018 index changes the knowledge available to RAG without retraining. Overall, the paper's central result is that retrieval gives a sequence-to-sequence generator explicit access to external text while preserving the flexibility of generation."
+    },
+    "gold_claims": [
+      {
+        "id": "c1",
+        "text": "RAG combines parametric and non-parametric memory.",
+        "source": [
+          "p1-p2"
+        ]
+      },
+      {
+        "id": "c2",
+        "text": "DPR provides the retriever and BART-large provides the generator.",
+        "source": [
+          "p3"
+        ]
+      },
+      {
+        "id": "c3",
+        "text": "The retrieved document is treated as a latent variable and marginalized.",
+        "source": [
+          "p2-p3"
+        ]
+      },
+      {
+        "id": "c4",
+        "text": "RAG-Sequence uses one document for all output tokens; RAG-Token can use different documents per token.",
+        "source": [
+          "p3"
+        ]
+      },
+      {
+        "id": "c5",
+        "text": "The training objective is negative marginal log-likelihood; the document encoder and index are kept fixed.",
+        "source": [
+          "p3"
+        ]
+      },
+      {
+        "id": "c6",
+        "text": "The Wikipedia index contains 21M disjoint 100-word chunks from the December 2018 dump.",
+        "source": [
+          "p4"
+        ]
+      },
+      {
+        "id": "c7",
+        "text": "RAG-Sequence gets 44.5 EM on NQ, 45.2 on WQ, 52.2 on CT, and 56.8/68.0 on the two TQA setups.",
+        "source": [
+          "p6"
+        ]
+      },
+      {
+        "id": "c8",
+        "text": "RAG-Sequence gets 44.2 BLEU-1 on MS-MARCO versus 41.6 for BART.",
+        "source": [
+          "p6"
+        ]
+      },
+      {
+        "id": "c9",
+        "text": "RAG-Token gets Q-BLEU-1 22.2 on Jeopardy versus 19.7 for BART.",
+        "source": [
+          "p6"
+        ]
+      },
+      {
+        "id": "c10",
+        "text": "Human evaluation found RAG more factual in 42.7% of cases and BART more factual in 7.1%.",
+        "source": [
+          "p8"
+        ]
+      },
+      {
+        "id": "c11",
+        "text": "Learned retrieval improves results; BM25 performs best on FEVER in the reported ablation.",
+        "source": [
+          "p7-p8"
+        ]
+      },
+      {
+        "id": "c12",
+        "text": "Replacing the non-parametric index can update accessible knowledge without retraining.",
+        "source": [
+          "p7-p9"
+        ]
+      }
+    ],
+    "source_policy": "Paper-only ground truth. Numeric claims must match the paper exactly.",
+    "dataset_version": "saral-ground-truth-v1",
+    "source_paper": {
+      "title": "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
+      "arxiv": "2005.11401v4",
+      "authors": "Patrick Lewis et al.",
+      "source_constraint": "Use only the uploaded paper as factual evidence."
+    },
+    "evaluation_notes": "",
+    "evaluation": {
+      "reference_based": [
+        "ROUGE-L",
+        "BERTScore"
+      ],
+      "grounding": [
+        "claim_evidence_overlap",
+        "citation_provenance"
+      ],
+      "human": [
+        "audience_appropriateness",
+        "factuality",
+        "helpfulness"
+      ],
+      "important_note": "Reference outputs are valid human-authored targets, not the only possible correct outputs."
+    }
+  },
+  {
+    "id": "rag_v1_slides_7_grad",
+    "artifact_type": "slides",
+    "request": {
+      "task": "Create a 7-slide technical presentation on RAG.",
+      "audience": "graduate students",
+      "length": "5-7min",
+      "style": "technical"
+    },
+    "gold_output": {
+      "slides": [
+        {
+          "slide_number": 1,
+          "role": "title",
+          "title": "Retrieval-Augmented Generation",
+          "takeaway": "RAG combines parametric generation with an external non-parametric memory.",
+          "bullets": [
+            "Patrick Lewis et al.",
+            "Knowledge-intensive NLP tasks"
+          ],
+          "speaker_notes": "Introduce the problem: pretrained models contain knowledge but can be difficult to update or inspect and can hallucinate.",
+          "source": [
+            "p1"
+          ]
+        },
+        {
+          "slide_number": 2,
+          "role": "background",
+          "title": "Why add retrieval?",
+          "takeaway": "External memory makes knowledge accessible and updateable.",
+          "bullets": [
+            "Parametric models store knowledge in model parameters.",
+            "Knowledge is difficult to revise and inspect.",
+            "RAG adds explicit non-parametric memory."
+          ],
+          "speaker_notes": "Contrast implicit parametric knowledge with an explicit document index.",
+          "source": [
+            "p1-p2"
+          ]
+        },
+        {
+          "slide_number": 3,
+          "role": "method",
+          "title": "RAG architecture",
+          "takeaway": "A DPR retriever finds passages that condition a BART generator.",
+          "bullets": [
+            "Query encoder produces q(x).",
+            "Document encoder produces d(z).",
+            "MIPS retrieves top-k passages.",
+            "BART conditions on input x and retrieved z."
+          ],
+          "speaker_notes": "The document index is the non-parametric memory; BART is the parametric memory.",
+          "source": [
+            "p2-p3"
+          ]
+        },
+        {
+          "slide_number": 4,
+          "role": "method",
+          "title": "RAG-Sequence vs RAG-Token",
+          "takeaway": "The variants differ in how retrieved documents are assigned to generated tokens.",
+          "bullets": [
+            "RAG-Sequence: one latent document for the whole sequence.",
+            "RAG-Token: a potentially different document for each token.",
+            "Both marginalize over the top-k retrieved documents."
+          ],
+          "speaker_notes": "Emphasize that RAG-Token can combine information from multiple documents.",
+          "source": [
+            "p3"
+          ]
+        },
+        {
+          "slide_number": 5,
+          "role": "results",
+          "title": "Results on knowledge-intensive tasks",
+          "takeaway": "RAG improves over the BART baseline on several reported generation and QA metrics.",
+          "bullets": [
+            "NQ: RAG-Sequence 44.5 EM.",
+            "MS-MARCO: RAG-Sequence 44.2 BLEU-1 vs BART 41.6.",
+            "Jeopardy: RAG-Token 22.2 Q-BLEU-1 vs BART 19.7."
+          ],
+          "speaker_notes": "Keep the metrics tied to their task; do not imply that ROUGE-L, EM, and Q-BLEU measure the same property.",
+          "source": [
+            "p6"
+          ]
+        },
+        {
+          "slide_number": 6,
+          "role": "analysis",
+          "title": "What retrieval contributes",
+          "takeaway": "Learned retrieval helps, while the best retrieval strategy can depend on the task.",
+          "bullets": [
+            "Learned retrieval improves reported ablations.",
+            "BM25 performs best on FEVER.",
+            "The authors link this to FEVER's entity-centric claims."
+          ],
+          "speaker_notes": "This is an important nuance: dense learned retrieval is not uniformly best in every task.",
+          "source": [
+            "p7"
+          ]
+        },
+        {
+          "slide_number": 7,
+          "role": "conclusion",
+          "title": "External memory can be updated",
+          "takeaway": "RAG can change accessible world knowledge by replacing the external index.",
+          "bullets": [
+            "2016 and 2018 Wikipedia indexes produce different knowledge behavior.",
+            "No retraining is required to replace the non-parametric memory.",
+            "RAG combines retrieval with flexible sequence generation."
+          ],
+          "speaker_notes": "Close with the main architectural contribution rather than claiming that retrieval eliminates hallucinations.",
+          "source": [
+            "p7-p9"
+          ]
+        }
+      ]
+    },
+    "gold_claims": [
+      {
+        "id": "c1",
+        "text": "RAG combines parametric and non-parametric memory.",
+        "source": [
+          "p1"
+        ]
+      },
+      {
+        "id": "c2",
+        "text": "DPR and BART form the retriever-generator pair.",
+        "source": [
+          "p2-p3"
+        ]
+      },
+      {
+        "id": "c3",
+        "text": "RAG-Sequence and RAG-Token differ in document assignment across the generated sequence.",
+        "source": [
+          "p3"
+        ]
+      },
+      {
+        "id": "c4",
+        "text": "RAG-Sequence obtains 44.5 EM on NQ.",
+        "source": [
+          "p6"
+        ]
+      },
+      {
+        "id": "c5",
+        "text": "RAG-Sequence obtains 44.2 BLEU-1 on MS-MARCO versus 41.6 for BART.",
+        "source": [
+          "p6"
+        ]
+      },
+      {
+        "id": "c6",
+        "text": "RAG-Token obtains 22.2 Q-BLEU-1 on Jeopardy versus 19.7 for BART.",
+        "source": [
+          "p6"
+        ]
+      },
+      {
+        "id": "c7",
+        "text": "BM25 performs best on FEVER in the reported ablation.",
+        "source": [
+          "p7"
+        ]
+      },
+      {
+        "id": "c8",
+        "text": "Index replacement can update accessible knowledge without retraining.",
+        "source": [
+          "p7-p9"
+        ]
+      }
+    ],
+    "source_policy": "Slide content must be supported by the paper; no invented figures or quantitative claims.",
+    "dataset_version": "saral-ground-truth-v1",
+    "source_paper": {
+      "title": "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
+      "arxiv": "2005.11401v4",
+      "authors": "Patrick Lewis et al.",
+      "source_constraint": "Use only the uploaded paper as factual evidence."
+    },
+    "evaluation_notes": "",
+    "evaluation": {
+      "reference_based": [
+        "ROUGE-L",
+        "BERTScore"
+      ],
+      "grounding": [
+        "claim_evidence_overlap",
+        "citation_provenance"
+      ],
+      "human": [
+        "audience_appropriateness",
+        "factuality",
+        "helpfulness"
+      ],
+      "important_note": "Reference outputs are valid human-authored targets, not the only possible correct outputs."
+    }
+  },
+  {
+    "id": "rag_v1_slides_6_policy",
+    "artifact_type": "slides",
+    "request": {
+      "task": "Create a 6-slide presentation explaining why RAG matters.",
+      "audience": "policymakers",
+      "length": "5min",
+      "style": "plain-English"
+    },
+    "gold_output": {
+      "slides": [
+        {
+          "slide_number": 1,
+          "title": "Retrieval-Augmented Generation",
+          "takeaway": "RAG gives a language generator access to an external document memory.",
+          "bullets": [
+            "Combines pretrained generation with retrieval.",
+            "Designed for knowledge-intensive tasks."
+          ],
+          "source": [
+            "p1-p2"
+          ]
+        },
+        {
+          "slide_number": 2,
+          "title": "The problem with parametric-only models",
+          "takeaway": "Stored knowledge can be difficult to revise or inspect.",
+          "bullets": [
+            "Knowledge is stored in model parameters.",
+            "The paper notes difficulty expanding or revising that memory.",
+            "The authors also discuss hallucinations."
+          ],
+          "source": [
+            "p1-p2"
+          ]
+        },
+        {
+          "slide_number": 3,
+          "title": "How RAG works",
+          "takeaway": "RAG retrieves passages and conditions generation on them.",
+          "bullets": [
+            "DPR retrieves passages.",
+            "BART generates using the input and retrieved text.",
+            "The external index acts as non-parametric memory."
+          ],
+          "source": [
+            "p2-p3"
+          ]
+        },
+        {
+          "slide_number": 4,
+          "title": "Evidence from the experiments",
+          "takeaway": "RAG performs strongly across several knowledge-intensive tasks.",
+          "bullets": [
+            "State-of-the-art results are reported on three open-domain QA tasks.",
+            "RAG-Sequence reaches 44.5 EM on Natural Questions.",
+            "RAG-Sequence reaches 44.2 BLEU-1 on MS-MARCO."
+          ],
+          "source": [
+            "p1",
+            "p6"
+          ]
+        },
+        {
+          "slide_number": 5,
+          "title": "A practical advantage: updateable memory",
+          "takeaway": "The external index can be replaced without retraining the generator.",
+          "bullets": [
+            "The authors compare 2016 and 2018 Wikipedia indexes.",
+            "Mismatched indexes give low accuracy.",
+            "Replacing the index changes the accessible knowledge."
+          ],
+          "source": [
+            "p7"
+          ]
+        },
+        {
+          "slide_number": 6,
+          "title": "What the paper demonstrates",
+          "takeaway": "External retrieval can complement parametric generation across multiple tasks.",
+          "bullets": [
+            "Retrieval provides explicit external memory.",
+            "Generation remains flexible rather than purely extractive.",
+            "The paper also shows task-dependent retrieval behavior."
+          ],
+          "source": [
+            "p2",
+            "p7-p9"
+          ]
+        }
+      ]
+    },
+    "gold_claims": [
+      {
+        "id": "c1",
+        "text": "RAG provides a generator with access to an external document memory.",
+        "source": [
+          "p1-p2"
+        ]
+      },
+      {
+        "id": "c2",
+        "text": "The paper reports state-of-the-art results on three open-domain QA tasks.",
+        "source": [
+          "p1"
+        ]
+      },
+      {
+        "id": "c3",
+        "text": "RAG-Sequence gets 44.5 EM on Natural Questions.",
+        "source": [
+          "p6"
+        ]
+      },
+      {
+        "id": "c4",
+        "text": "RAG-Sequence gets 44.2 BLEU-1 on MS-MARCO.",
+        "source": [
+          "p6"
+        ]
+      },
+      {
+        "id": "c5",
+        "text": "The external index can be replaced to update accessible knowledge without retraining.",
+        "source": [
+          "p7"
+        ]
+      }
+    ],
+    "source_policy": "Audience adaptation may simplify language and prioritize implications, but cannot add facts absent from the paper.",
+    "dataset_version": "saral-ground-truth-v1",
+    "source_paper": {
+      "title": "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
+      "arxiv": "2005.11401v4",
+      "authors": "Patrick Lewis et al.",
+      "source_constraint": "Use only the uploaded paper as factual evidence."
+    },
+    "evaluation_notes": "",
+    "evaluation": {
+      "reference_based": [
+        "ROUGE-L",
+        "BERTScore"
+      ],
+      "grounding": [
+        "claim_evidence_overlap",
+        "citation_provenance"
+      ],
+      "human": [
+        "audience_appropriateness",
+        "factuality",
+        "helpfulness"
+      ],
+      "important_note": "Reference outputs are valid human-authored targets, not the only possible correct outputs."
+    }
+  },
+  {
+    "id": "rag_v1_qa_10",
+    "artifact_type": "question_answer",
+    "request": {
+      "task": "Answer questions about the RAG paper.",
+      "audience": "graduate students",
+      "style": "technical"
+    },
+    "gold_output": [
+      {
+        "question": "What problem is RAG trying to address?",
+        "answer": "The paper targets limitations of parametric-only pretrained language models: difficulty accessing and revising stored knowledge, limited provenance, and hallucinations on knowledge-intensive tasks.",
+        "source": [
+          "p1-p2"
+        ]
+      },
+      {
+        "question": "What are the two components of RAG?",
+        "answer": "A retriever p_eta(z|x) that returns top-k text passages and a generator p_theta(y_i|x,z,y_1:i-1) that produces the output conditioned on the input and retrieved passage.",
+        "source": [
+          "p2-p3"
+        ]
+      },
+      {
+        "question": "Which retriever does the paper use?",
+        "answer": "Dense Passage Retrieval (DPR), using BERT-based query and document encoders and maximum inner product search.",
+        "source": [
+          "p3"
+        ]
+      },
+      {
+        "question": "Which generator does the paper use?",
+        "answer": "BART-large, a pretrained sequence-to-sequence transformer.",
+        "source": [
+          "p3"
+        ]
+      },
+      {
+        "question": "What is the difference between RAG-Sequence and RAG-Token?",
+        "answer": "RAG-Sequence uses the same retrieved document for the complete output sequence, while RAG-Token can select a different latent document for each output token.",
+        "source": [
+          "p3"
+        ]
+      },
+      {
+        "question": "How is RAG trained?",
+        "answer": "The retriever and generator are jointly trained from input-output pairs by minimizing the negative marginal log-likelihood. The document encoder and document index are kept fixed while the query encoder and BART generator are fine-tuned.",
+        "source": [
+          "p3"
+        ]
+      },
+      {
+        "question": "What corpus is used for the non-parametric memory?",
+        "answer": "A December 2018 Wikipedia dump split into disjoint 100-word chunks, producing 21 million documents.",
+        "source": [
+          "p4"
+        ]
+      },
+      {
+        "question": "What is one important MS-MARCO result?",
+        "answer": "RAG-Sequence achieves 44.2 BLEU-1, compared with 41.6 for BART.",
+        "source": [
+          "p6"
+        ]
+      },
+      {
+        "question": "What did the human evaluation find for Jeopardy question generation?",
+        "answer": "RAG was judged more factual than BART in 42.7% of pairwise cases, while BART was judged more factual in 7.1%; RAG was also judged more specific.",
+        "source": [
+          "p8"
+        ]
+      },
+      {
+        "question": "How does the paper demonstrate updateable knowledge?",
+        "answer": "It compares RAG using a December 2016 Wikipedia index with a December 2018 index and shows that replacing the index changes which world knowledge the model can access without retraining.",
+        "source": [
+          "p7"
+        ]
+      }
+    ],
+    "evaluation_notes": "For QA, exact-match is too strict for many valid answers. Use semantic similarity plus claim-level grounding.",
+    "dataset_version": "saral-ground-truth-v1",
+    "source_paper": {
+      "title": "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
+      "arxiv": "2005.11401v4",
+      "authors": "Patrick Lewis et al.",
+      "source_constraint": "Use only the uploaded paper as factual evidence."
+    },
+    "evaluation": {
+      "reference_based": [
+        "ROUGE-L",
+        "BERTScore"
+      ],
+      "grounding": [
+        "claim_evidence_overlap",
+        "citation_provenance"
+      ],
+      "human": [
+        "audience_appropriateness",
+        "factuality",
+        "helpfulness"
+      ],
+      "important_note": "Reference outputs are valid human-authored targets, not the only possible correct outputs."
+    }
+  },
+  {
+    "id": "rag_v1_tweet_thread",
+    "artifact_type": "tweets",
+    "request": {
+      "task": "Create an 8-post Twitter/X thread explaining the paper.",
+      "audience": "general AI audience",
+      "style": "concise"
+    },
+    "gold_output": {
+      "posts": [
+        "1/8 What is Retrieval-Augmented Generation (RAG)? The paper's core idea: combine a pretrained generator with an external, searchable memory for knowledge-intensive NLP.",
+        "2/8 Why? Parametric language models can store factual knowledge, but the paper highlights problems with revising or inspecting that knowledge and the possibility of hallucinations.",
+        "3/8 RAG adds non-parametric memory: a dense vector index of Wikipedia. A neural retriever finds passages relevant to the input.",
+        "4/8 The retriever is DPR. The generator is BART-large. The input and retrieved passage are combined so generation can condition on external text.",
+        "5/8 RAG-Sequence uses the same retrieved document for the whole output. RAG-Token can use different retrieved documents for different output tokens.",
+        "6/8 On Natural Questions, RAG-Sequence reaches 44.5 Exact Match. On MS-MARCO, it reaches 44.2 BLEU-1 versus 41.6 for BART.",
+        "7/8 The paper also finds RAG more factual and specific in human evaluation for Jeopardy question generation, and studies learned retrieval versus BM25.",
+        "8/8 One striking property: the external index can be replaced. The paper's 2016 vs 2018 index experiment shows that accessible world knowledge can change without retraining the generator."
+      ]
+    },
+    "gold_claims": [
+      {
+        "id": "c1",
+        "text": "RAG combines a pretrained generator with external non-parametric memory.",
+        "source": [
+          "p1-p2"
+        ]
+      },
+      {
+        "id": "c2",
+        "text": "The index is Wikipedia and retrieval uses DPR.",
+        "source": [
+          "p1-p4"
+        ]
+      },
+      {
+        "id": "c3",
+        "text": "RAG-Sequence and RAG-Token differ in document assignment.",
+        "source": [
+          "p3"
+        ]
+      },
+      {
+        "id": "c4",
+        "text": "RAG-Sequence gets 44.5 EM on NQ and 44.2 BLEU-1 on MS-MARCO.",
+        "source": [
+          "p6"
+        ]
+      },
+      {
+        "id": "c5",
+        "text": "Human evaluation favors RAG on factuality and specificity.",
+        "source": [
+          "p8"
+        ]
+      },
+      {
+        "id": "c6",
+        "text": "Index replacement changes accessible knowledge without retraining.",
+        "source": [
+          "p7"
+        ]
+      }
+    ],
+    "evaluation_notes": "Use BERTScore/semantic similarity and human evaluation; lexical overlap alone is especially weak for short social posts.",
+    "dataset_version": "saral-ground-truth-v1",
+    "source_paper": {
+      "title": "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
+      "arxiv": "2005.11401v4",
+      "authors": "Patrick Lewis et al.",
+      "source_constraint": "Use only the uploaded paper as factual evidence."
+    },
+    "evaluation": {
+      "reference_based": [
+        "ROUGE-L",
+        "BERTScore"
+      ],
+      "grounding": [
+        "claim_evidence_overlap",
+        "citation_provenance"
+      ],
+      "human": [
+        "audience_appropriateness",
+        "factuality",
+        "helpfulness"
+      ],
+      "important_note": "Reference outputs are valid human-authored targets, not the only possible correct outputs."
+    }
+  },
+  {
+    "id": "rag_v1_linkedin",
+    "artifact_type": "linkedin",
+    "request": {
+      "task": "Write a LinkedIn post explaining the paper and its practical lesson.",
+      "audience": "AI/ML professionals",
+      "style": "professional"
+    },
+    "gold_output": {
+      "post": "One of the key ideas behind Retrieval-Augmented Generation is surprisingly simple: don't force a generator to keep all useful knowledge inside its parameters.\n\nLewis et al.'s RAG paper combines a pretrained sequence-to-sequence generator with a non-parametric memory. In their experiments, the memory is a dense vector index of Wikipedia, retrieved with Dense Passage Retrieval, while BART provides the generation model.\n\nThe paper studies two variants. RAG-Sequence uses one retrieved document for the whole sequence; RAG-Token can use different documents for different generated tokens. On the reported tasks, RAG achieves strong results, including 44.5 Exact Match on Natural Questions for RAG-Sequence and 44.2 BLEU-1 on MS-MARCO versus 41.6 for BART.\n\nThe most practical result is the index hot-swap experiment: changing the external Wikipedia index changes the knowledge available to the model without retraining the generator.\n\nThe broader lesson from this paper is that retrieval and generation can play different roles: retrieval provides access to external text, while the generator turns that information into flexible output."
+    },
+    "gold_claims": [
+      {
+        "id": "c1",
+        "text": "RAG combines a sequence-to-sequence generator with non-parametric memory.",
+        "source": [
+          "p1-p3"
+        ]
+      },
+      {
+        "id": "c2",
+        "text": "The paper uses DPR retrieval and BART generation.",
+        "source": [
+          "p3"
+        ]
+      },
+      {
+        "id": "c3",
+        "text": "RAG-Sequence gets 44.5 EM on NQ.",
+        "source": [
+          "p6"
+        ]
+      },
+      {
+        "id": "c4",
+        "text": "RAG-Sequence gets 44.2 BLEU-1 on MS-MARCO versus 41.6 for BART.",
+        "source": [
+          "p6"
+        ]
+      },
+      {
+        "id": "c5",
+        "text": "Replacing the external index changes accessible knowledge without retraining.",
+        "source": [
+          "p7"
+        ]
+      }
+    ],
+    "dataset_version": "saral-ground-truth-v1",
+    "source_paper": {
+      "title": "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
+      "arxiv": "2005.11401v4",
+      "authors": "Patrick Lewis et al.",
+      "source_constraint": "Use only the uploaded paper as factual evidence."
+    },
+    "evaluation_notes": "",
+    "evaluation": {
+      "reference_based": [
+        "ROUGE-L",
+        "BERTScore"
+      ],
+      "grounding": [
+        "claim_evidence_overlap",
+        "citation_provenance"
+      ],
+      "human": [
+        "audience_appropriateness",
+        "factuality",
+        "helpfulness"
+      ],
+      "important_note": "Reference outputs are valid human-authored targets, not the only possible correct outputs."
+    }
+  },
+  {
+    "id": "rag_v1_plain_english",
+    "artifact_type": "script",
+    "request": {
+      "task": "Explain RAG in plain English without equations or implementation details.",
+      "audience": "non-technical",
+      "length": "90s",
+      "style": "plain-English"
+    },
+    "gold_output": {
+      "script": "The paper's idea is to let a language generator look something up before it answers. Instead of relying only on knowledge stored inside the model, RAG gives it an external collection of documents. In the paper, that collection is a large index built from Wikipedia. A retrieval system searches the index for passages related to the input, and a language generator uses those passages when producing its answer. The authors study two ways of doing this: one can keep the same retrieved document throughout an answer, while the other can switch between retrieved documents as different parts of the answer are generated. The experiments cover question answering, question generation, and fact verification. The authors report strong results and more factual and specific generation than the BART baseline in their generation experiments. They also show that the external memory can be replaced, allowing the accessible knowledge to change without retraining the generator."
+    },
+    "gold_claims": [
+      {
+        "id": "c1",
+        "text": "RAG adds an external document collection to a generator.",
+        "source": [
+          "p1-p3"
+        ]
+      },
+      {
+        "id": "c2",
+        "text": "The external collection is a Wikipedia index.",
+        "source": [
+          "p1-p4"
+        ]
+      },
+      {
+        "id": "c3",
+        "text": "The paper evaluates QA, question generation, and fact verification.",
+        "source": [
+          "p4-p6"
+        ]
+      },
+      {
+        "id": "c4",
+        "text": "The external memory can be replaced to update accessible knowledge.",
+        "source": [
+          "p7"
+        ]
+      }
+    ],
+    "dataset_version": "saral-ground-truth-v1",
+    "source_paper": {
+      "title": "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
+      "arxiv": "2005.11401v4",
+      "authors": "Patrick Lewis et al.",
+      "source_constraint": "Use only the uploaded paper as factual evidence."
+    },
+    "evaluation_notes": "",
+    "evaluation": {
+      "reference_based": [
+        "ROUGE-L",
+        "BERTScore"
+      ],
+      "grounding": [
+        "claim_evidence_overlap",
+        "citation_provenance"
+      ],
+      "human": [
+        "audience_appropriateness",
+        "factuality",
+        "helpfulness"
+      ],
+      "important_note": "Reference outputs are valid human-authored targets, not the only possible correct outputs."
+    }
+  },
+  {
+    "id": "rag_v1_revision_slide5_less_technical",
+    "artifact_type": "revision",
+    "request": {
+      "task": "Revise slide 5 of the graduate deck: make it less technical and easier for a mixed audience. Keep all numbers and facts unchanged.",
+      "audience": "mixed",
+      "style": "plain-English",
+      "target_slide": 5,
+      "change_instruction": "Make it less technical; preserve the quantitative results."
+    },
+    "gold_output": {
+      "before": {
+        "title": "Results on knowledge-intensive tasks",
+        "bullets": [
+          "NQ: RAG-Sequence 44.5 EM.",
+          "MS-MARCO: RAG-Sequence 44.2 BLEU-1 vs BART 41.6.",
+          "Jeopardy: RAG-Token 22.2 Q-BLEU-1 vs BART 19.7."
+        ]
+      },
+      "after": {
+        "title": "RAG performs strongly across tasks",
+        "bullets": [
+          "On Natural Questions, RAG-Sequence scores 44.5 Exact Match.",
+          "On MS-MARCO, RAG-Sequence scores 44.2 BLEU-1, compared with 41.6 for BART.",
+          "On Jeopardy question generation, RAG-Token scores 22.2 Q-BLEU-1, compared with 19.7 for BART."
+        ]
+      },
+      "delta": [
+        "Expanded metric abbreviations into audience-friendly wording.",
+        "Removed unnecessary technical framing while preserving all reported numbers.",
+        "Kept the same three experimental comparisons."
+      ]
+    },
+    "gold_claims": [
+      {
+        "id": "c1",
+        "text": "RAG-Sequence gets 44.5 EM on NQ.",
+        "source": [
+          "p6"
+        ]
+      },
+      {
+        "id": "c2",
+        "text": "RAG-Sequence gets 44.2 BLEU-1 versus 41.6 for BART on MS-MARCO.",
+        "source": [
+          "p6"
+        ]
+      },
+      {
+        "id": "c3",
+        "text": "RAG-Token gets 22.2 Q-BLEU-1 versus 19.7 for BART on Jeopardy.",
+        "source": [
+          "p6"
+        ]
+      }
+    ],
+    "evaluation_notes": "Revision evaluation should check semantic preservation of factual claims plus whether the requested style change occurred.",
+    "dataset_version": "saral-ground-truth-v1",
+    "source_paper": {
+      "title": "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
+      "arxiv": "2005.11401v4",
+      "authors": "Patrick Lewis et al.",
+      "source_constraint": "Use only the uploaded paper as factual evidence."
+    },
+    "evaluation": {
+      "reference_based": [
+        "ROUGE-L",
+        "BERTScore"
+      ],
+      "grounding": [
+        "claim_evidence_overlap",
+        "citation_provenance"
+      ],
+      "human": [
+        "audience_appropriateness",
+        "factuality",
+        "helpfulness"
+      ],
+      "important_note": "Reference outputs are valid human-authored targets, not the only possible correct outputs."
+    }
+  },
+  {
+    "id": "rag_v1_technical_question",
+    "artifact_type": "question_answer",
+    "request": {
+      "task": "Explain the RAG-Sequence probability formulation and why the document is treated as a latent variable.",
+      "audience": "graduate students",
+      "style": "technical"
+    },
+    "gold_output": {
+      "answer": "RAG treats the retrieved document z as a latent variable. For RAG-Sequence, the top-k retrieved documents are considered, and the sequence probability is approximated by summing the generator probability for the complete output under each retrieved document, weighted by the retriever probability. In other words, the model does not commit to one retrieved passage as the only explanation for the output; it marginalizes over the retrieved candidates. The paper contrasts this with RAG-Token, where the latent document can change for each output token.",
+      "equation": "p_RAG-Sequence(y|x) ≈ Σ_{z∈top-k(p(·|x))} p_η(z|x) p_θ(y|x,z)",
+      "source": [
+        "p3"
+      ]
+    },
+    "gold_claims": [
+      {
+        "id": "c1",
+        "text": "RAG-Sequence treats the retrieved document as a latent variable.",
+        "source": [
+          "p3"
+        ]
+      },
+      {
+        "id": "c2",
+        "text": "Its sequence probability is approximated by a weighted sum over the top-k retrieved documents.",
+        "source": [
+          "p3"
+        ]
+      },
+      {
+        "id": "c3",
+        "text": "RAG-Token allows a different latent document for each output token.",
+        "source": [
+          "p3"
+        ]
+      }
+    ],
+    "dataset_version": "saral-ground-truth-v1",
+    "source_paper": {
+      "title": "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
+      "arxiv": "2005.11401v4",
+      "authors": "Patrick Lewis et al.",
+      "source_constraint": "Use only the uploaded paper as factual evidence."
+    },
+    "evaluation_notes": "",
+    "evaluation": {
+      "reference_based": [
+        "ROUGE-L",
+        "BERTScore"
+      ],
+      "grounding": [
+        "claim_evidence_overlap",
+        "citation_provenance"
+      ],
+      "human": [
+        "audience_appropriateness",
+        "factuality",
+        "helpfulness"
+      ],
+      "important_note": "Reference outputs are valid human-authored targets, not the only possible correct outputs."
+    }
+  },
+  {
+    "id": "rag_v1_press_release",
+    "artifact_type": "press_release",
+    "request": {
+      "task": "Write a short press-release-style summary of the paper.",
+      "audience": "general public",
+      "length": "200-250 words",
+      "style": "press-release"
+    },
+    "gold_output": {
+      "title": "Study explores combining retrieval with language generation",
+      "body": "Researchers introduce Retrieval-Augmented Generation (RAG), a framework that combines a pretrained language generator with an external collection of documents. The work addresses limitations the authors identify in parametric language models, including difficulty revising stored knowledge, limited ability to inspect accessed knowledge, and hallucinations.\n\nIn the study, a Dense Passage Retriever searches a dense vector index of Wikipedia for relevant passages. A BART sequence-to-sequence generator then uses the input and retrieved text to produce an output. The researchers compare two formulations: RAG-Sequence, which uses the same retrieved document for the full output, and RAG-Token, which can use different documents for different generated tokens.\n\nThe experiments cover open-domain question answering, abstractive question answering, Jeopardy question generation, and fact verification. RAG-Sequence reaches 44.5 Exact Match on Natural Questions and 44.2 BLEU-1 on MS-MARCO, compared with 41.6 for the BART baseline on the latter task. Human evaluations for Jeopardy question generation also favor RAG on reported factuality and specificity comparisons.\n\nThe study additionally demonstrates that replacing the external index can change the knowledge available to the system without retraining the generator."
+    },
+    "gold_claims": [
+      {
+        "id": "c1",
+        "text": "RAG combines a pretrained generator with external documents.",
+        "source": [
+          "p1-p3"
+        ]
+      },
+      {
+        "id": "c2",
+        "text": "The experiments cover open-domain QA, abstractive QA, Jeopardy question generation, and FEVER.",
+        "source": [
+          "p4-p6"
+        ]
+      },
+      {
+        "id": "c3",
+        "text": "RAG-Sequence gets 44.5 EM on NQ and 44.2 BLEU-1 on MS-MARCO versus BART 41.6.",
+        "source": [
+          "p6"
+        ]
+      },
+      {
+        "id": "c4",
+        "text": "Human evaluation favors RAG on reported factuality and specificity comparisons.",
+        "source": [
+          "p8"
+        ]
+      },
+      {
+        "id": "c5",
+        "text": "Replacing the external index changes accessible knowledge without retraining.",
+        "source": [
+          "p7"
+        ]
+      }
+    ],
+    "dataset_version": "saral-ground-truth-v1",
+    "source_paper": {
+      "title": "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
+      "arxiv": "2005.11401v4",
+      "authors": "Patrick Lewis et al.",
+      "source_constraint": "Use only the uploaded paper as factual evidence."
+    },
+    "evaluation_notes": "",
+    "evaluation": {
+      "reference_based": [
+        "ROUGE-L",
+        "BERTScore"
+      ],
+      "grounding": [
+        "claim_evidence_overlap",
+        "citation_provenance"
+      ],
+      "human": [
+        "audience_appropriateness",
+        "factuality",
+        "helpfulness"
+      ],
+      "important_note": "Reference outputs are valid human-authored targets, not the only possible correct outputs."
+    }
+  }
+]

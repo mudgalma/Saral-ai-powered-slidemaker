@@ -43,6 +43,58 @@ path or public/signed URL is returned. Visual assets are source-display metadata
 citations, so claims must still cite chunk IDs. Image bytes are not sent to OpenRouter in this
 phase; a later multimodal prompt change can use the bounded selected asset set.
 
+### Structured decks and central prompt registry
+
+Prompt construction is now centralized in `src/saral_parser/prompts/`. The registry routes a
+validated `GenerationRequest` to one of three small, readable prompt contracts:
+
+- `slides.py` requests a `SlideDeckDraft`: exact slide count, takeaway header, 2–5 bullets,
+  exactly three speaker notes, slide script, and claim-to-chunk provenance per slide.
+- `social.py` handles Twitter threads and LinkedIn posts with their own format constraints.
+- `answer.py` handles answers, summaries, and scripts without slide-only instructions.
+
+All three reuse the same `shared.py` request, EvidencePack, revision, validation-feedback, and
+grounding sections. The deck is one structured model call rather than one expensive model call per
+slide. A deterministic slide-role scaffold gives each slide a different purpose, while the model
+adapts that scaffold only from retrieved evidence. If the user states a count such as “7 slides”,
+that count wins; otherwise SARAL defaults to 3 slides for 30 seconds, 5 for 90 seconds, and 8 for
+5 minutes.
+
+`SlideDeckDraft` is validated before a response is persisted. The checker verifies the exact count,
+consecutive slide numbers, length budget, allowed chunk IDs, and lexical support for each declared
+provenance claim. The browser receives the validated structured deck and renders its bullets,
+speaker notes, scripts, and provenance. It also continues to render the selected source visuals
+already carried from `EvidencePack.assets`. SARAL does **not** yet ask the model to select one
+asset per slide or send image pixels to the model; that is a later visual-layout/multimodal step.
+
+### Browser slide preview and chat revisions
+
+The first slide UI is deliberately a preview, not a second editor. `SlideDeckPreview` uses the
+already installed Embla carousel to render one 16:9 slide at a time with keyboard navigation,
+controls, slide-position indicators, and an expandable notes/script/provenance panel. It reads the
+persisted `artifact.deck` in the local conversation message and does not make a generation call.
+
+For each preview slide, the UI compares its provenance chunk IDs with `visual_assets.source_chunk_id`
+and selects one non-repeated matching asset. The existing authenticated asset endpoint fetches the
+private image as a browser blob; no storage URL is persisted or exposed. A missing or unavailable
+image leaves a readable text slide rather than failing the deck. Chat remains the only edit surface:
+“make slide 3 simpler” follows the existing revision route, creates an immutable V2 artifact, and
+renders that new version in the carousel.
+
+React Flow is intentionally deferred. Its canvas/slideshow pattern is appropriate for a future
+drag-and-drop storyboard, but Embla is the smaller and clearer fit for the requested
+preview-and-chat-edits workflow. See [Embla Carousel](https://www.embla-carousel.com/) and the
+[React Flow slideshow tutorial](https://reactflow.dev/learn/tutorials/slide-shows-with-react-flow).
+
+The central prompt pattern follows [OpenAI prompt engineering](https://developers.openai.com/api/docs/guides/prompt-engineering),
+[OpenAI structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs),
+[LangSmith prompt engineering concepts](https://docs.langchain.com/langsmith/prompt-engineering-concepts),
+and [LangChain structured output](https://docs.langchain.com/oss/python/langchain/structured-output):
+clear role and format instructions, delimited untrusted data, explicit negative constraints,
+audience-specific direction, schema-constrained output, and deterministic post-generation checks.
+It intentionally does not request hidden chain-of-thought or implement ReAct: SARAL records visible
+inputs, outputs, routes, and validation results instead.
+
 ## Documentation decisions
 
 1. [LangGraph workflows and agents](https://docs.langchain.com/oss/python/langgraph/workflows-agents)
@@ -81,13 +133,17 @@ base URL, requests JSON-schema output, then validates it with Pydantic.
 | --- | --- | --- |
 | `pyproject.toml` | Adds Python-3.9-compatible `langgraph==0.6.11`. | LangGraph Graph API; the compatible release line is required because this project supports Python 3.9. |
 | `src/saral_parser/models.py` | Adds request, evidence, draft, grounding, citation, and response schemas, plus OpenRouter provider configuration. | Thinking in LangGraph state design; Knowledge Base metadata handoff; OpenRouter embeddings and structured outputs. |
-| `src/saral_parser/generation.py` | Implements EvidencePack, deterministic slide query expansion/coverage selection, linked source visual propagation, prompt construction, OpenRouter JSON-schema output, Pydantic validation, deterministic checks, and compiled pass/regenerate/flag graph. | Query Transformations; Deconstructing RAG; Workflows and Agents; Graph API; Custom RAG; Original RAG paper; OpenRouter structured outputs. |
+| `src/saral_parser/prompts/__init__.py`, `shared.py`, `slides.py`, `social.py`, `answer.py` | Central prompt registry; shared delimited request/evidence/revision/repair rules; structured slide-deck, Twitter/LinkedIn, and generic artifact prompt profiles. | OpenAI prompt engineering; OpenAI structured outputs; LangSmith prompt engineering concepts; LangChain structured output. |
+| `src/saral_parser/generation.py` | Implements EvidencePack, deterministic slide query expansion/coverage selection, linked source visual propagation, typed output selection, Pydantic validation, deterministic checks, and compiled pass/regenerate/flag graph. | Query Transformations; Deconstructing RAG; Workflows and Agents; Graph API; Custom RAG; Original RAG paper; OpenRouter structured outputs. |
+| `src/saral_parser/conversation.py` | Extracts an explicit slide count from a user message and carries it through the conversation graph into `GenerationRequest`. | LangGraph Graph API state updates; Thinking in LangGraph state design. |
 | `src/saral_parser/exceptions.py` | Adds the typed generation boundary error. | Thinking in LangGraph discrete failure boundaries. |
 | `src/saral_parser/app.py` | Adds the authenticated, document-readiness-gated `/generate` endpoint and tracing. | Knowledge Base retrieval handoff; Custom RAG grounded generation. |
-| `tests/test_generation.py` | Tests pass, corrective retry/flag, unsupported claim detection, slide query coverage, and source-visual propagation without a live model. | Query Transformations; Custom RAG’s grading/retry flow; production test requirements. |
+| `tests/test_generation.py` | Tests generic and structured-deck generation, exact slide count, corrective retry/flag, unsupported claim detection, slide query coverage, and source-visual propagation without a live model. | Query Transformations; Custom RAG’s grading/retry flow; production test requirements. |
 | `tests/test_api.py` | Tests the new endpoint’s artifact and citation response with fake dependencies. | Graph API’s explicit inputs/outputs; Custom RAG. |
-| `Frontend/src/lib/parser-api.ts` | Adds typed browser API client/request-response contract and authenticated source-asset fetching. | The backend API contract above; Supabase private-storage delivery guidance; no LangGraph implementation is duplicated in the browser. |
-| `Frontend/src/components/saral-workspace.tsx` | Removes placeholder answers and renders API-returned grounded artifacts, citations, and selected private source visuals. | Custom RAG’s grounded-answer handoff; Supabase private-storage delivery guidance. |
+| `Frontend/src/lib/parser-api.ts` | Adds typed browser API client/request-response contract for slide decks, LinkedIn posts, and authenticated source-asset fetching. | The backend API contract above; OpenAI structured outputs; Supabase private-storage delivery guidance; no LangGraph implementation is duplicated in the browser. |
+| `Frontend/src/components/saral-workspace.tsx` | Removes placeholder answers and renders API-returned structured deck slides, citations, speaker notes/scripts, and selected private source visuals. | Custom RAG’s grounded-answer handoff; OpenAI structured outputs; Supabase private-storage delivery guidance. |
+| `Frontend/src/components/slides/slide-deck-preview.tsx` | Renders the validated deck as an Embla 16:9 preview, deterministically associates one cited source visual per slide, and exposes notes/script/provenance without direct editing. | Embla Carousel; React Flow slideshow tutorial (evaluated and intentionally deferred); presentation visual-design guidance. |
+| `Frontend/src/lib/saral-store.ts` | Retains the structured deck in the browser’s local conversation message so the active UI can render it after the API response. | Browser state contract; immutable backend artifact version remains authoritative. |
 | `Frontend/src/lib/saral-store.ts` | Persists selected visual metadata with a local assistant message so it can be displayed again in the active browser workspace. | Browser/UI state contract; the backend remains the authority for each private asset. |
 | `.env.backend` | Documents OpenRouter key, model, timeout, and output-token configuration. | OpenRouter compatibility/structured-output documentation and production configuration practice. |
 | `README.md` | Documents the endpoint, bounded retry, safe flagging, and workflow reference. | All sources above, summarized for operation. |

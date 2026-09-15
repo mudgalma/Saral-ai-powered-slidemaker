@@ -10,6 +10,7 @@ from typing import Any, Literal, Optional, TypedDict
 from uuid import UUID
 
 from langgraph.graph import END, START, StateGraph
+from langsmith import traceable, get_current_run_tree
 
 from .exceptions import GenerationError, PersistenceError
 from .generation import GenerationService
@@ -30,6 +31,7 @@ from .models import (
 
 LOGGER = logging.getLogger(__name__)
 _VERSION_REFERENCE = re.compile(r"(?:^|\s)#(\d+)\b")
+_SLIDE_COUNT_REFERENCE = re.compile(r"\b([2-9]|1\d|20)[ -]?slides?\b", re.IGNORECASE)
 
 
 class ConversationGraphState(TypedDict, total=False):
@@ -186,6 +188,8 @@ def analyze_intent(
         if any(term in lowered for term in ("slide", "deck", "presentation"))
         else ArtifactType.SCRIPT
         if any(term in lowered for term in ("script", "speech", "talk"))
+        else ArtifactType.LINKEDIN_POST
+        if "linkedin" in lowered
         else ArtifactType.TWEET_THREAD
         if any(term in lowered for term in ("tweet", "thread", "post"))
         else ArtifactType.ANSWER
@@ -209,12 +213,14 @@ def analyze_intent(
         else GenerationLength.STANDARD
     )
     style = "plain English" if any(term in lowered for term in ("plain", "simple", "non-technical")) else "technical"
+    slide_match = _SLIDE_COUNT_REFERENCE.search(message)
     return ConversationIntent(
         branch=branch,
         artifact_type=artifact_type,
         audience=audience_override or audience,
         length=length_override or length,
         style=style_override or style,
+        slide_count=int(slide_match.group(1)) if slide_match and artifact_type is ArtifactType.SLIDE_OUTLINE else None,
         is_revision=revision,
     )
 
@@ -238,6 +244,7 @@ def resolve_context(state: ConversationGraphState) -> ArtifactVersion | None:
 def _build_conversation_graph(service: ConversationService) -> Any:
     """Compile intent/context/router branches into the shared grounded generation boundary."""
 
+    @traceable(name="saral.conversation.load", run_type="tool", tags=["saral", "conversation"])
     def load_node(state: ConversationGraphState) -> dict[str, Any]:
         return {
             "conversation": service.load_state(
@@ -245,32 +252,45 @@ def _build_conversation_graph(service: ConversationService) -> Any:
             )
         }
 
+    @traceable(name="saral.conversation.intent", run_type="chain", tags=["saral", "conversation"])
     def intent_node(state: ConversationGraphState) -> dict[str, Any]:
         request = state["request"]
-        return {
-            "intent": analyze_intent(
-                request.message, request.audience, request.length, request.style
-            )
-        }
+        intent = analyze_intent(request.message, request.audience, request.length, request.style)
+        rt = get_current_run_tree()
+        if rt is not None:
+            rt.add_metadata({
+                "branch": intent.branch.value,
+                "artifact_type": intent.artifact_type.value,
+                "audience": intent.audience,
+                "length": intent.length.value,
+                "is_revision": intent.is_revision,
+                "slide_count": intent.slide_count,
+            })
+        return {"intent": intent}
 
+    @traceable(name="saral.conversation.context", run_type="tool", tags=["saral", "conversation"])
     def context_node(state: ConversationGraphState) -> dict[str, Any]:
         return {"target": resolve_context(state)}
 
     def route(state: ConversationGraphState) -> Literal["new_generation", "revision", "question"]:
         return state["intent"].branch.value
 
+    @traceable(name="saral.conversation.new_generation", run_type="chain", tags=["saral", "conversation"])
     def new_generation_node(state: ConversationGraphState) -> dict[str, Any]:
         return {"retrieval_query": state["request"].message}
 
+    @traceable(name="saral.conversation.revision", run_type="chain", tags=["saral", "conversation"])
     def revision_node(state: ConversationGraphState) -> dict[str, Any]:
         target = state["target"]
         if target is None:
             raise GenerationError("Revision target was not resolved")
         return {"retrieval_query": f"{target.artifact.title} {state['request'].message}"[:4_000]}
 
+    @traceable(name="saral.conversation.question", run_type="chain", tags=["saral", "conversation"])
     def question_node(state: ConversationGraphState) -> dict[str, Any]:
         return {"retrieval_query": state["request"].message}
 
+    @traceable(name="saral.conversation.generate", run_type="chain", tags=["saral", "conversation", "generation"])
     def generate_node(state: ConversationGraphState) -> dict[str, Any]:
         intent = state["intent"]
         request = GenerationRequest(
@@ -279,6 +299,7 @@ def _build_conversation_graph(service: ConversationService) -> Any:
             length=intent.length,
             style=intent.style,
             user_instruction=state["request"].message,
+            slide_count=intent.slide_count,
         )
         revision_source = state["target"].artifact.content if state.get("target") else None
         return {
@@ -291,6 +312,7 @@ def _build_conversation_graph(service: ConversationService) -> Any:
             )
         }
 
+    @traceable(name="saral.conversation.version", run_type="tool", tags=["saral", "conversation"])
     def version_node(state: ConversationGraphState) -> dict[str, Any]:
         return {"response": service.persist_result(state)}
 

@@ -80,7 +80,7 @@ class FakeRetriever:
 
 
 class FakeGenerator:
-    def generate(self, prompt, max_output_tokens):
+    def generate(self, prompt, max_output_tokens, response_model=GeneratedArtifactDraft):
         return GeneratedArtifactDraft(
             title="Methods",
             content="Method text is retrieved before generation. [chunk-1]",
@@ -93,7 +93,7 @@ class FakeGenerator:
 
 
 class FailingGenerator:
-    def generate(self, prompt, max_output_tokens):
+    def generate(self, prompt, max_output_tokens, response_model=GeneratedArtifactDraft):
         raise GenerationError("provider unavailable")
 
 

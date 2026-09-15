@@ -1,9 +1,12 @@
+import type { SlideDeck, ParserManifest } from "@/lib/parser-api";
+
 export type SaralMessage = {
   id: string;
   role: "user" | "assistant";
   text: string;
   kind?: "answer" | "revision";
   visualAssets?: SaralVisualAsset[];
+  deck?: SlideDeck;
 };
 
 export type SaralVisualAsset = {
@@ -19,6 +22,8 @@ export type SaralThread = {
   title: string;
   updatedAt: number;
   messages: SaralMessage[];
+  /** Persisted document manifest so the paper link survives page refreshes. */
+  source?: ParserManifest;
 };
 
 const STORAGE_KEY = "saral-chat-threads-v1";

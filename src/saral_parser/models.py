@@ -232,8 +232,8 @@ class GenerationSettings(BaseModel):
     api_key: SecretStr
     base_url: str = "https://openrouter.ai/api/v1"
     model: str = "openai/gpt-4.1-mini"
-    timeout_seconds: float = Field(default=45.0, ge=5.0, le=120.0)
-    max_output_tokens: int = Field(default=1_400, ge=100, le=4_000)
+    timeout_seconds: float = Field(default=120.0, ge=5.0, le=240.0)
+    max_output_tokens: int = Field(default=4000, ge=100, le=8000)
 
     @classmethod
     def from_env(cls) -> "GenerationSettings":
@@ -247,8 +247,8 @@ class GenerationSettings(BaseModel):
             api_key=SecretStr(key),
             base_url=os.environ.get("SARAL_OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
             model=os.environ.get("SARAL_GENERATION_MODEL", "openai/gpt-4.1-mini"),
-            timeout_seconds=float(os.environ.get("SARAL_GENERATION_TIMEOUT_SECONDS", "45")),
-            max_output_tokens=int(os.environ.get("SARAL_GENERATION_MAX_OUTPUT_TOKENS", "1400")),
+            timeout_seconds=float(os.environ.get("SARAL_GENERATION_TIMEOUT_SECONDS", "120")),
+            max_output_tokens=int(os.environ.get("SARAL_GENERATION_MAX_OUTPUT_TOKENS", "4000")),
         )
 
 
@@ -324,6 +324,7 @@ class ArtifactType(str, Enum):
     SCRIPT = "script"
     SLIDE_OUTLINE = "slide_outline"
     TWEET_THREAD = "tweet_thread"
+    LINKEDIN_POST = "linkedin_post"
 
 
 class GenerationLength(str, Enum):
@@ -344,6 +345,7 @@ class GenerationRequest(BaseModel):
     length: GenerationLength = GenerationLength.STANDARD
     style: str = Field(default="plain English", min_length=1, max_length=120)
     user_instruction: str = Field(min_length=1, max_length=4_000)
+    slide_count: Optional[int] = Field(default=None, ge=2, le=20)
 
     @field_validator("audience", "style", "user_instruction")
     @classmethod
@@ -396,6 +398,32 @@ class GeneratedArtifactDraft(BaseModel):
     claims: List[GroundedClaim] = Field(min_length=1, max_length=50)
 
 
+class SlideProvenance(BaseModel):
+    """One factual slide claim and the retrieved chunks that support it."""
+
+    claim: str = Field(min_length=1, max_length=1_500)
+    citation_ids: List[str] = Field(min_length=1, max_length=4)
+
+
+class SlideDraft(BaseModel):
+    """A renderer-ready slide generated from bounded document evidence."""
+
+    slide_number: int = Field(ge=1, le=20)
+    role: str = Field(min_length=1, max_length=80)
+    header_takeaway: str = Field(min_length=1, max_length=180)
+    bullets: List[str] = Field(min_length=1, max_length=6)
+    speaker_notes: List[str] = Field(min_length=3, max_length=3)
+    spoken_script: str = Field(min_length=1, max_length=2_500)
+    provenance: List[SlideProvenance] = Field(min_length=1, max_length=20)
+
+
+class SlideDeckDraft(BaseModel):
+    """Structured slide-deck output before deterministic grounding validation."""
+
+    title: str = Field(min_length=1, max_length=180)
+    slides: List[SlideDraft] = Field(min_length=2, max_length=20)
+
+
 class ArtifactCitation(BaseModel):
     """Display-ready citation derived only from retrieved evidence metadata."""
 
@@ -429,6 +457,7 @@ class GeneratedArtifact(BaseModel):
     content: str
     citations: List[ArtifactCitation] = Field(min_length=1)
     visual_assets: List[ArtifactVisualAsset] = Field(default_factory=list, max_length=12)
+    deck: Optional[SlideDeckDraft] = None
 
 
 class GenerationResponse(BaseModel):
@@ -479,6 +508,7 @@ class ConversationIntent(BaseModel):
     audience: str = Field(min_length=1, max_length=120)
     length: GenerationLength
     style: str = Field(min_length=1, max_length=120)
+    slide_count: Optional[int] = Field(default=None, ge=2, le=20)
     is_revision: bool = False
 
 
