@@ -14,9 +14,11 @@
 > **Aasan** is a powerful chatbot module and RAG pipeline that ingests complex research papers (PDF/LaTeX) and produces **audience-adaptive scripts**, bullet points, and tweet-sized abstracts. It supports seamless iterative editing via conversation (e.g., *"make it more visual"*, *"dumb down #3"*).
 
 <div align="center">
-  <img src="docs/aasaan_hld.jpg" alt="Aasan High-Level Architecture" width="100%" />
+  <a href="docs/architecture.md">
+    <img src="docs/aasaan_hld.jpg" alt="Aasan High-Level Architecture" width="100%" />
+  </a>
   <br/>
-  <i>For class-level technical details, see the <a href="docs/aasaan_lld.jpg">Low-Level Design (LLD)</a>.</i>
+  <i>Read the full <b><a href="docs/architecture.md">Comprehensive Architecture Document</a></b> for both HLD and class-level Low-Level Design (LLD) details.</i>
 </div>
 
 ---

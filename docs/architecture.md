@@ -1,84 +1,33 @@
-# SARAL architecture
+# Aasan (formerly SARAL) — Complete Architecture
 
-For the complete current architecture and low-level design—including chunk metadata, private image
-delivery, retrieval, grounding, and conversations—see [full-architecture.md](full-architecture.md).
+This document outlines the full end-to-end architecture of the Aasan RAG Pipeline and Audience-Adaptive Script Generator. It is broken down into two levels: the **High-Level Design (HLD)** which maps the user journey and system boundary, and the **Low-Level Design (LLD)** which maps internal class structures and data models.
 
-SARAL preserves source structure before indexing it. The parser stores immutable PDF and image
-assets privately, while each chunk keeps page numbers, source references, bounding boxes, and
-related `asset_ids`. Text embeddings are an additional index on those rows—not a replacement for
-the original PDF, page images, figures, tables, or provenance.
+---
 
-```mermaid
-flowchart LR
-    U[User] --> UI[React UI]
-    UI -->|PDF + JWT| API[FastAPI]
-    API --> S[Private Supabase Storage]
-    API --> DB[(Supabase Postgres + RLS)]
-    API --> R[Redis]
-    R --> PW[Celery: parse_and_chunk]
-    PW --> P[Docling + HybridChunker]
-    P -->|chunks + page/asset provenance| DB
-    P -->|PDF, document JSON, page/figure/table assets| S
-    PW --> EW[Celery: embed_document]
-    EW --> O[OpenRouter openai/text-embedding-3-small]
-    O -->|vectors| DB
+## 1. High-Level Design (HLD)
 
-    UI -->|prompt + controls| API
-    API --> QE[Embed question]
-    QE --> D[Dense top 20: pgvector cosine]
-    API --> F[Sparse top 20: Postgres FTS]
-    DB --> D
-    DB --> F
-    D --> RRF[Reciprocal Rank Fusion]
-    F --> RRF
-    RRF --> K[Top 5–8 chunks + provenance]
-    K --> API
-    API --> UI
+The High-Level Architecture showcases the core 4-layer flow:
+1. **User Layer:** A React/TypeScript UI for uploading PDFs and submitting natural language edits.
+2. **API Layer:** FastAPI backend dispatching long-running jobs to a Celery/Redis queue.
+3. **RAG Pipeline (Core):**
+   - **Ingestion:** Docling parser that retains structural hierarchy and LaTeX math.
+   - **Retrieval:** Hybrid pgvector + BM25 search to locate exact facts and formulas.
+   - **Generation:** LLM Prompt Builder that parameterizes for Audience, Length, and Style.
+4. **Storage & Observability:** Supabase for vector data and LangSmith for real-time evaluation metrics (ROUGE-L, BERTScore).
 
-    API -. IDs, counts, timings only .-> LS[LangSmith]
+<div align="center">
+  <img src="aasaan_hld.jpg" alt="Aasan High-Level Architecture" width="100%" />
+</div>
 
-    classDef persisted fill:#dcfce7,stroke:#15803d,color:#14532d;
-    classDef retrieval fill:#e0e7ff,stroke:#4338ca,color:#312e81;
-    class U,UI,API,S,DB,R,P,PW,EW,LS persisted;
-    class O,QE,D,F,RRF,K retrieval;
-```
+---
 
-## Retrieval and grounding boundaries
+## 2. Low-Level Design (LLD)
 
-- `parse_and_chunk` completes before `embed_document` starts. A failed embedding job leaves the
-  parsed document and its assets intact and sets only `embedding_status=failed`.
-- Vectors are stored on `document_chunks`; captions and heading context are part of
-  `contextualized_text`. Figure/table IDs, pages, and source references remain response metadata.
-- Dense and sparse queries both filter by the verified `owner_id` and `document_id` inside
-  server-only Postgres functions. Browser roles cannot invoke those functions.
-- Retrieval returns the fused chunks with their `chunk_id`, pages, headings, source references,
-  full provenance, and related figure/table `asset_ids`, ready for a future generator and citation UI.
+The Low-Level Architecture dives into the Python classes and database models powering the backend:
+- `IngestionService` and `ParserJob` manage file validation and Docling integration.
+- `HybridRetriever` orchestrates the dual-query logic and Reciprocal Rank Fusion (`_rrf_merge()`).
+- `GenerationService` and `GenerationRequest` handle strict output enforcement and citation grounding.
 
-## Request sequence
-
-```mermaid
-sequenceDiagram
-    participant UI as React UI
-    participant API as FastAPI
-    participant DB as Supabase Postgres
-    participant R as Redis
-    participant PW as Parser worker
-    participant EW as Embed worker
-    participant O as OpenRouter
-
-    UI->>API: POST /v1/documents (PDF)
-    API->>DB: queued document + parse job
-    API->>R: parse_and_chunk
-    R->>PW: parse job
-    PW->>DB: chunks + source/page/asset provenance
-    PW->>DB: queued embedding job
-    PW->>R: embed_document
-    R->>EW: embedding job
-    EW->>O: bounded contextualized-text batches
-    O-->>EW: ordered vectors
-    EW->>DB: vector rows; embedding_status=ready
-    UI->>API: POST /retrieve
-    API->>O: embed question
-    API->>DB: dense and sparse searches in parallel
-    API-->>UI: fused cited chunks with provenance
-```
+<div align="center">
+  <img src="aasaan_lld.jpg" alt="Aasan Low-Level Architecture" width="100%" />
+</div>
