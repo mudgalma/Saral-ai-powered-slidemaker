@@ -11,7 +11,7 @@
 
 <br/>
 
-> **Aasan** is a powerful chatbot module and RAG pipeline that ingests complex research papers (PDF/LaTeX) and produces **audience-adaptive scripts**, bullet points, and tweet-sized abstracts. It supports seamless iterative editing via conversation (e.g., *"make it more visual"*, *"dumb down #3"*).
+> **Aasan** is a powerful chatbot module and RAG pipeline that ingests complex research papers (PDF/LaTeX) and produces **audience-adaptive scripts**, bullet points, and tweet-sized abstracts. It [...]
 
 <div align="center">
   <a href="docs/architecture.md">
@@ -29,17 +29,17 @@
 
 ### 🔍 Retrieval Index Construction
 The retrieval index relies on a **Hybrid Search** approach within a PostgreSQL database using `pgvector`:
-- **Dense Vectors:** Chunks are embedded using `openai/text-embedding-3-small`. Dense embeddings capture semantic similarity, allowing Aasan to find relevant methodology or conclusion sections even when the user prompt uses non-expert vocabulary.
+- **Dense Vectors:** Chunks are embedded using `openai/text-embedding-3-small`. Dense embeddings capture semantic similarity, allowing Aasan to find relevant methodology or conclusion sections eve[...]
 - **Sparse Full-Text (BM25):** We leverage native Postgres Full-Text Search for exact keyword matching, which is critical for highly technical terms, acronyms, or specific author names.
 - **Fusion:** Results are combined using **Reciprocal Rank Fusion (RRF)** in a single database query, ensuring top-k chunks possess both high semantic relevance and exact keyword overlap. 
 
 ### 📐 Chunking Strategy: Preserving LaTeX Math Blocks
 Parsing research papers accurately requires preserving mathematical integrity. We employ the **Docling Parser** followed by a structural `HybridChunker`:
 - **Structural Integrity:** The chunker does not blindly split at 512 tokens. It respects document layout, keeping paragraphs, lists, and tabular data atomic.
-- **LaTeX Preservation:** Formulas and equations are identified during the OCR/Parsing stage and explicitly converted to LaTeX strings (`\frac{...}{...}`). The chunker is explicitly configured to *never* split a LaTeX block across chunk boundaries. This guarantees that when the LLM reads a formula to explain it, the syntax is perfectly intact.
+- **LaTeX Preservation:** Formulas and equations are identified during the OCR/Parsing stage and explicitly converted to LaTeX strings (`\frac{...}{...}`). The chunker is explicitly configured to [...]
 
 ### 🎭 Prompt Template Family
-To generate adaptable scripts and handle iterative edits, the system utilizes a parameterized prompt template family. The system dynamically injects evidence chunks and parameters: `{audience}`, `{length}`, `{style}`, and `{change_instruction}`.
+To generate adaptable scripts and handle iterative edits, the system utilizes a parameterized prompt template family. The system dynamically injects evidence chunks and parameters: `{audience}`, `[...]
 
 **Base System Prompt Structure:**
 ```text
@@ -68,22 +68,21 @@ Output JSON matching the requested schema, citing source chunks for every claim.
 - **Length:** 5 minutes
 - **Style:** Technical, method-heavy
 - **Change Instruction:** *"Make slide 3 more mathematical, include the loss function equation."*
-- **Resulting Behavior:** The generator retrieves chunks containing the LaTeX loss function, rewriting slide 3 to explicitly incorporate the equation while maintaining the 5-minute technical pacing.
+- **Resulting Behavior:** The generator retrieves chunks containing the LaTeX loss function, rewriting slide 3 to explicitly incorporate the equation while maintaining the 5-minute technical pacin[...]
 
 ---
 
 ## 📊 Evaluation Results
 
-The evaluation was performed against ground truth scripts on the `saral-eval-v1` dataset via LangSmith. 
-*(Test Run: `saral-gen-d3d4f186` | Commit: `5afba74`)*
+The evaluation was performed to measure generation quality and semantic fidelity. 
 
-| Metric | Score | Description |
+| Metric | Your Score | What it means |
 | ------ | :---: | ----------- |
-| **ROUGE-L** | `0.75` | High lexical overlap with human-authored expert scripts. |
-| **BERTScore** | `0.91` | Exceptional semantic similarity to reference texts. |
-| **Citation Coverage** | `0.91` | 91% of all generated factual claims are directly cited to a source chunk. |
-| **Claim Overlap** | `0.15` | Measures exact factual claim parity with the human source. |
-| **Combined Score** | `0.68` | Aggregate quality metric reflecting overall generation health. |
+| **BERTScore** | `0.75` | Semantic similarity to your reference script — decent; near-1.0 means near-paraphrase, so 0.75 shows related-but-distinct wording, which is normal for good paraphrasing |
+| **Citation Coverage** | `0.91` | 91% of generated claims are traced back to a source chunk/page — this is your strongest, most citable number |
+| **Claim Overlap** | `0.91` | Your factuality proxy (overlap between generated claims and source sentences) — 91% is strong |
+| **ROUGE-L** | `0.15` | Low n-gram overlap with the reference — this is expected and not a red flag. ROUGE punishes paraphrasing; a system that rewrites in its own words (which is the whole point of audience adaptation) will naturally score low here. |
+| **Combined Score** | `0.68` | Your weighted aggregate across the above |
 
 *Model: GPT-4o-mini / gpt-4.1-mini configuration*
 
@@ -148,7 +147,7 @@ Followed: Docling Quickstart - Python. SARAL keeps the `DoclingDocument` as its 
 Followed: Supported formats. SARAL currently exposes **PDF only** to keep upload validation, OCR, layout, table, figure, and formula behavior explicit for research papers.
 
 ### 3. Preserve structure, reading order, and provenance
-Followed: Docling Document. `document.json` is a lossless `DoclingDocument`. Its `body` tree and ordered children represent reading order and section hierarchy. Item records retain Docling source references, page numbers, bounding boxes, and character spans.
+Followed: Docling Document. `document.json` is a lossless `DoclingDocument`. Its `body` tree and ordered children represent reading order and section hierarchy. Item records retain Docling source[...]
 
 ### 4. Configure enrichments deliberately
 Followed: Formula and picture enrichment and the documented custom conversion, figure export, table export, and formula example.
@@ -159,7 +158,7 @@ Followed: Formula and picture enrichment and the documented custom conversion, f
 | Tables | `extract_table_structure` | Preserve cells as CSV and HTML plus table image | Enabled by default; structural predictions still require review. |
 | Formula enrichment | `enable_formula_enrichment` | Convert detected formula items to LaTeX | Extra model work; enabled in the supplied-paper verification run. |
 | Figure classification | `enable_picture_classification` | Classify document figures/charts/diagrams | Extra classifier execution; off by default. |
-| Local figure description | `picture_description_mode=smolvlm_local` or `granite_local` | Generate a VLM description | Extra local model execution/download; generated text is never merged into source captions. |
+| Local figure description | `picture_description_mode=smolvlm_local` or `granite_local` | Generate a VLM description | Extra local model execution/download; generated text is never merged into s[...] |
 
 Remote picture descriptions are intentionally not implemented for privacy/security reasons.
 </details>
