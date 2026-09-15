@@ -1,5 +1,5 @@
 <div align="center">
-  <h1>✨ Aasan <span>(formerly SARAL)</span> ✨</h1>
+  <h1>✨ SARAL</span> ✨</h1>
   <p><strong>Audience-Adaptive RAG Pipeline & Script Generator</strong></p>
   <p>
     <img src="https://img.shields.io/badge/Python-3.9+-blue.svg" alt="Python version" />
