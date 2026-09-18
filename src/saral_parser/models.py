@@ -467,7 +467,7 @@ class GenerationResponse(BaseModel):
     status: str
     artifact: Optional[GeneratedArtifact] = None
     grounding: GroundingReport
-    attempts: int = Field(ge=0, le=2)
+    attempts: int = Field(ge=0, le=4)
 
 
 class ConversationBranch(str, Enum):

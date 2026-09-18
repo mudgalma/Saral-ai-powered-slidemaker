@@ -17,6 +17,7 @@ dependencies = [
   "pydantic==2.12.5",
   "python-multipart==0.0.20",
   "redis==6.4.0",
+  "sentence-transformers==3.3.1",
   "supabase==2.31.0",
   "uvicorn==0.38.0",
 ]

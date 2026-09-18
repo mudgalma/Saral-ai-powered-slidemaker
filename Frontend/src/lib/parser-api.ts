@@ -213,8 +213,15 @@ async function readJson<T extends object>(response: Response): Promise<T> {
     if (response.status === 401) {
       throw new Error("Sign in is required before uploading a paper.");
     }
-    const message = payload && "detail" in payload ? payload.detail : "Paper request failed.";
-    throw new Error(message ?? "Paper request failed.");
+    let message = "Paper request failed.";
+    if (payload && "detail" in payload) {
+      if (Array.isArray(payload.detail)) {
+        message = payload.detail.map((e: any) => `${e.loc?.join(".")}: ${e.msg}`).join(", ");
+      } else if (typeof payload.detail === "string") {
+        message = payload.detail;
+      }
+    }
+    throw new Error(message);
   }
   return payload as T;
 }

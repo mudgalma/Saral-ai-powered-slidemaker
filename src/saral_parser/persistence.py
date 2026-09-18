@@ -253,7 +253,7 @@ class SupabasePersistence:
         """Return chunks that need vectors for the requested model revision."""
         response = self._execute(
             lambda: self._client.table("document_chunks")
-            .select("id,contextualized_text,embedding,embedding_model")
+            .select("id,contextualized_text,embedding,embedding_model,content_types")
             .eq("document_id", document_id)
             .eq("owner_id", str(owner_id))
             .order("chunk_index")

@@ -97,3 +97,48 @@ def _is_transient(exc: Exception) -> bool:
     except (TypeError, ValueError):
         pass
     return isinstance(exc, (ConnectionError, TimeoutError))
+
+
+class LocalMathEmbedder:
+    """Create local MathBERTa vectors for formula chunks with zero-padding."""
+
+    def __init__(self, settings: EmbeddingSettings, model_name: str = "witiko/mathberta") -> None:
+        self.settings = settings
+        self.model_name = model_name
+        self._model = None
+
+    def _load_model(self) -> Any:
+        if self._model is None:
+            try:
+                from sentence_transformers import SentenceTransformer
+                self._model = SentenceTransformer(self.model_name, device="cpu")
+            except ImportError as exc:
+                raise EmbeddingError("sentence-transformers is not installed") from exc
+            except Exception as exc:
+                raise EmbeddingError(f"Could not load local math model {self.model_name}") from exc
+        return self._model
+
+    def embed_query(self, text: str) -> list[float]:
+        return self.embed_texts([text])[0]
+
+    def embed_texts(self, texts: Sequence[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        
+        model = self._load_model()
+        try:
+            embeddings = model.encode(texts, convert_to_numpy=True)
+            # Pad or truncate to match the expected database dimensions (e.g. 1536 for OpenAI)
+            target_dim = self.settings.dimensions
+            padded_embeddings = []
+            for emb in embeddings:
+                emb_list = emb.tolist()
+                if len(emb_list) < target_dim:
+                    emb_list.extend([0.0] * (target_dim - len(emb_list)))
+                elif len(emb_list) > target_dim:
+                    emb_list = emb_list[:target_dim]
+                padded_embeddings.append(emb_list)
+            return padded_embeddings
+        except Exception as exc:
+            raise EmbeddingError("Failed to encode text with local math model") from exc
+

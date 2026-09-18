@@ -81,41 +81,38 @@ function SlideCanvas({
   return (
     // Fixed min-height keeps all carousel slides the same size — content clips
     // gracefully with line-clamp rather than making slides jump in height.
-    <article className="flex h-[340px] w-full overflow-hidden rounded-lg border border-border bg-card text-card-foreground shadow-sm">
+    <article className="flex h-[340px] w-full overflow-hidden rounded-xl border border-slate-800 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white shadow-2xl">
       <div className={`grid h-full flex-1 ${visual ? "grid-cols-[1.2fr_0.8fr]" : "grid-cols-1"}`}>
         {/* Text column: overflow-hidden clips content at the fixed card boundary */}
         <div className="flex min-w-0 flex-col overflow-hidden p-5 sm:p-7">
-          <p className="mb-2 shrink-0 text-[10px] font-bold uppercase tracking-[0.14em] text-primary">
+          <p className="mb-2 shrink-0 text-[9px] font-bold uppercase tracking-[0.15em] text-cyan-400">
             Slide {slide.slide_number}
           </p>
-          <h3 className="font-display shrink-0 text-lg font-bold leading-snug sm:text-xl">
+          <h3 className="font-display shrink-0 text-base font-bold leading-snug sm:text-lg text-slate-50">
             {slide.header_takeaway}
           </h3>
-          <ul className="mt-3 min-h-0 flex-1 space-y-2 overflow-hidden text-xs leading-5 sm:mt-5 sm:text-sm sm:leading-6">
+          <ul className="mt-2.5 min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1 text-[11px] leading-relaxed sm:mt-4 sm:text-xs">
             {slide.bullets.map((bullet, index) => (
               <li className="flex gap-2" key={`${slide.slide_number}-${index}`}>
                 <span
                   aria-hidden="true"
-                  className="mt-[0.45rem] size-1.5 shrink-0 rounded-full bg-primary"
+                  className="mt-[0.35rem] size-1.5 shrink-0 rounded-full bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.8)]"
                 />
-                <span className="line-clamp-2">{bullet}</span>
+                <span className="text-slate-200">{bullet}</span>
               </li>
             ))}
           </ul>
-          <p className="mt-3 shrink-0 truncate text-[10px] text-muted-foreground">
-            {citations.map((id) => `[${id}]`).join(" ")}
-          </p>
         </div>
 
         {/* Image column — stretches to full card height */}
         {visual && (
-          <figure className="flex min-w-0 flex-col border-l border-border bg-muted/30">
+          <figure className="flex min-w-0 flex-col border-l border-white/5 bg-black/20 backdrop-blur-sm">
             <div className="relative flex-1">
               <div className="absolute inset-0 flex items-center justify-center p-4">
                 <SlideSourceVisual asset={visual} />
               </div>
             </div>
-            <figcaption className="shrink-0 truncate border-t border-border px-3 py-1.5 text-[9px] text-muted-foreground">
+            <figcaption className="shrink-0 truncate border-t border-white/5 bg-black/40 px-3 py-1.5 text-[9px] text-slate-400">
               {visual.caption ?? "Source visual"}
             </figcaption>
           </figure>

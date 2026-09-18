@@ -1,4 +1,5 @@
 "use client";
+import { nanoid } from "nanoid";
 
 import {
   Conversation,
@@ -31,6 +32,7 @@ import {
   createThread,
   loadThreads,
   saveThreads,
+  storeEventTarget,
   starterThread,
   type SaralMessage,
   type SaralThread,
@@ -240,7 +242,12 @@ export function SaralWorkspace({ threadId }: SaralWorkspaceProps) {
   const active = threads.find((thread) => thread.id === threadId);
 
   useEffect(() => textareaRef.current?.focus(), [threadId, status]);
-  useEffect(() => setThreads(loadThreads()), []);
+  useEffect(() => {
+    const handleUpdate = () => setThreads(loadThreads());
+    handleUpdate();
+    storeEventTarget.addEventListener("threads_updated", handleUpdate);
+    return () => storeEventTarget.removeEventListener("threads_updated", handleUpdate);
+  }, []);
 
   // Restore the source manifest from the active thread whenever the thread changes
   // or threads are first loaded from localStorage. This keeps the document link alive
@@ -251,11 +258,10 @@ export function SaralWorkspace({ threadId }: SaralWorkspaceProps) {
   }, [threadId, threads]);
 
   const persist = useCallback((updater: (current: SaralThread[]) => SaralThread[]) => {
-    setThreads((current) => {
-      const next = updater(current);
-      saveThreads(next);
-      return next;
-    });
+    const current = loadThreads();
+    const next = updater(current);
+    saveThreads(next);
+    setThreads(next);
   }, []);
 
   const handleNew = () => {
@@ -266,6 +272,7 @@ export function SaralWorkspace({ threadId }: SaralWorkspaceProps) {
   };
 
   const submit = async (message: PromptInputMessage) => {
+    console.log("SUBMIT CALLED with", message.files.length, "files and text:", message.text);
     const text = message.text.trim();
     const paper = message.files[0];
     if (!text && !paper) return;
@@ -280,7 +287,7 @@ export function SaralWorkspace({ threadId }: SaralWorkspaceProps) {
     }
     const targetId = currentId;
     const userMessage: SaralMessage = {
-      id: crypto.randomUUID(),
+      id: nanoid(),
       role: "user",
       text: text || `Upload ${paper?.filename ?? "paper"}`,
     };
@@ -309,7 +316,7 @@ export function SaralWorkspace({ threadId }: SaralWorkspaceProps) {
           ),
         );
         const parserMessage: SaralMessage = {
-          id: crypto.randomUUID(),
+          id: nanoid(),
           role: "assistant",
           kind: "answer",
           text: parserResultMessage(manifest),
@@ -324,7 +331,7 @@ export function SaralWorkspace({ threadId }: SaralWorkspaceProps) {
       } catch (error) {
         const messageText = error instanceof Error ? error.message : "Paper upload failed.";
         const failureMessage: SaralMessage = {
-          id: crypto.randomUUID(),
+          id: nanoid(),
           role: "assistant",
           kind: "answer",
           text: `## Could not parse the paper\n\n${messageText}`,
@@ -343,7 +350,7 @@ export function SaralWorkspace({ threadId }: SaralWorkspaceProps) {
     }
     if (!source) {
       const assistantMessage: SaralMessage = {
-        id: crypto.randomUUID(),
+        id: nanoid(),
         role: "assistant",
         kind: "answer",
         text: "## Upload a paper first\n\nSARAL can generate only from a parsed, retrieval-ready paper.",
@@ -367,7 +374,7 @@ export function SaralWorkspace({ threadId }: SaralWorkspaceProps) {
       );
       const rendered = conversationMessage(result);
       const assistantMessage: SaralMessage = {
-        id: crypto.randomUUID(),
+        id: nanoid(),
         role: "assistant",
         kind: "answer",
         text: rendered.text,
@@ -384,7 +391,7 @@ export function SaralWorkspace({ threadId }: SaralWorkspaceProps) {
     } catch (error) {
       const messageText = error instanceof Error ? error.message : "Grounded generation failed.";
       const assistantMessage: SaralMessage = {
-        id: crypto.randomUUID(),
+        id: nanoid(),
         role: "assistant",
         kind: "answer",
         text: `## Could not generate the artifact\n\n${messageText}`,
@@ -451,7 +458,12 @@ export function SaralWorkspace({ threadId }: SaralWorkspaceProps) {
                   className={`flex min-w-0 flex-1 items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-colors ${thread.id === threadId ? "bg-sidebar-accent font-semibold text-sidebar-accent-foreground" : "text-sidebar-foreground hover:bg-sidebar-accent/60"}`}
                 >
                   <MessageSquareText className="size-4 shrink-0" />
-                  <span className="truncate">{thread.title}</span>
+                  <span className="truncate">
+                    {thread.title?.trim() && thread.title !== "Untitled conversation"
+                      ? thread.title
+                      : thread.messages?.find((m) => m.role === "user")?.text?.slice(0, 25) ||
+                        "Untitled conversation"}
+                  </span>
                 </Link>
                 <Button
                   aria-label={`More options for ${thread.title}`}

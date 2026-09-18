@@ -1,3 +1,5 @@
+import { nanoid } from "nanoid";
+import { v4 as uuidv4 } from "uuid";
 import type { SlideDeck, ParserManifest } from "@/lib/parser-api";
 
 export type SaralMessage = {
@@ -27,7 +29,6 @@ export type SaralThread = {
 };
 
 const STORAGE_KEY = "saral-chat-threads-v1";
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export const starterThread: SaralThread = {
   id: "00000000-0000-4000-8000-000000000001",
@@ -48,9 +49,11 @@ export function loadThreads(): SaralThread[] {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "[]") as SaralThread[];
     if (Array.isArray(parsed) && parsed.length) {
-      const threads = parsed.map((thread) =>
-        UUID_PATTERN.test(thread.id) ? thread : { ...thread, id: crypto.randomUUID() },
-      );
+      const threads = parsed.map((thread) => ({
+        ...thread,
+        id: thread.id || uuidv4(),
+        messages: thread.messages || [],
+      }));
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(threads));
       return threads;
     }
@@ -61,13 +64,26 @@ export function loadThreads(): SaralThread[] {
   return [starterThread];
 }
 
+const getEventTarget = () => {
+  if (typeof window === "undefined") return new EventTarget();
+  if (!("saralStoreEventTarget" in window)) {
+    (window as any).saralStoreEventTarget = new EventTarget();
+  }
+  return (window as any).saralStoreEventTarget as EventTarget;
+};
+
+export const storeEventTarget = getEventTarget();
+
 export function saveThreads(threads: SaralThread[]) {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(threads));
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(threads));
+    storeEventTarget.dispatchEvent(new Event("threads_updated"));
+  }
 }
 
 export function createThread(): SaralThread {
   return {
-    id: crypto.randomUUID(),
+    id: uuidv4(),
     title: "Untitled conversation",
     updatedAt: Date.now(),
     messages: [],

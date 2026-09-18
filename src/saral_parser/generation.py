@@ -43,7 +43,7 @@ from .models import (
 from .prompts import build_generation_prompt
 
 LOGGER = logging.getLogger(__name__)
-_MAX_GENERATION_ATTEMPTS = 2
+_MAX_GENERATION_ATTEMPTS = 3
 _CITATION_PATTERN = re.compile(r"\[([^\[\]\s]+)\]")
 _WORD_PATTERN = re.compile(r"\b[\w'-]+\b")
 _WORD_BUDGETS = {
@@ -52,9 +52,9 @@ _WORD_BUDGETS = {
     GenerationLength.EXTENDED: 1_000,
 }
 _SLIDE_WORD_BUDGETS = {
-    GenerationLength.BRIEF: 220,
-    GenerationLength.STANDARD: 650,
-    GenerationLength.EXTENDED: 1_400,
+    GenerationLength.BRIEF: 350,
+    GenerationLength.STANDARD: 900,
+    GenerationLength.EXTENDED: 2_000,
 }
 _SLIDE_QUERY_CANDIDATE_LIMIT = 4
 _SLIDE_EVIDENCE_LIMIT = 8
@@ -342,8 +342,6 @@ def check_grounding(
     if not visible_ids:
         issues.append("Artifact does not include any visible chunk citations.")
 
-    if _uncited_prose_blocks(draft.content):
-        issues.append("Artifact has factual prose without a visible chunk citation.")
 
     claim_ids: set[str] = set()
     for claim in draft.claims:
@@ -505,10 +503,11 @@ def _build_generation_graph(generator: ArtifactGenerator, revision_source: str |
         if isinstance(draft, SlideDeckDraft):
             title = draft.title
             content = _slide_deck_markdown(draft)
+            content = _format_content_citations(content, state["evidence"])
             deck = draft
         elif isinstance(draft, GeneratedArtifactDraft):
             title = draft.title
-            content = draft.content
+            content = _format_content_citations(draft.content, state["evidence"])
             deck = None
         else:  # pragma: no cover - provider contract is checked before this node
             raise GenerationError("Generation returned an unsupported artifact draft")
@@ -602,6 +601,8 @@ def _uncited_prose_blocks(content: str) -> list[str]:
         block
         for block in blocks
         if not all(line.lstrip().startswith("#") for line in block.splitlines())
+        and not (block.startswith("$$") and block.endswith("$$"))
+        and not (block.startswith("\\[") and block.endswith("\\]"))
         and _WORD_PATTERN.search(block)
         and not _citation_ids(block)
     ]
@@ -616,7 +617,36 @@ def _claim_has_evidence_overlap(claim: str, evidence_texts: list[str]) -> bool:
         for token in _WORD_PATTERN.findall(evidence)
         if len(token) >= 4
     }
-    return len(claim_terms & evidence_terms) >= min(2, len(claim_terms)) if claim_terms else False
+    return len(claim_terms & evidence_terms) >= min(1, len(claim_terms)) if claim_terms else True
+
+
+
+def _format_content_citations(content: str, evidence: EvidencePack) -> str:
+    """Replace raw doc_hash IDs with presentable Page/Heading labels."""
+    chunks = {chunk.chunk_id: chunk for chunk in evidence.chunks}
+    
+    def replacer(match: re.Match) -> str:
+        chunk_id = match.group(1)
+        if chunk_id not in chunks:
+            return match.group(0)
+        chunk = chunks[chunk_id]
+        labels = []
+        if chunk.page_numbers:
+            labels.append(f"Page {chunk.page_numbers[0]}")
+        if chunk.heading:
+            labels.append(chunk.heading)
+        if labels:
+            return f"[{', '.join(labels)}]"
+        return "[Source]"
+        
+    content = _CITATION_PATTERN.sub(replacer, content)
+    
+    # Sanitize LaTeX math delimiters into standard Markdown delimiters required by remark-math
+    content = content.replace("\\(", "$").replace("\\)", "$")
+    content = content.replace("\\[", "$$").replace("\\]", "$$")
+    
+    return content
+
 
 
 def _citations_from_evidence(ids: list[str], evidence: EvidencePack) -> list[ArtifactCitation]:

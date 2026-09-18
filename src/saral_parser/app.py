@@ -327,3 +327,4 @@ def _supabase_user_resolver(persistence: SupabasePersistence) -> UserResolver:
 
 
 app = create_app() if os.environ.get("SARAL_EAGER_APP") == "1" else None
+

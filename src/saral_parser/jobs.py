@@ -14,7 +14,7 @@ from langsmith import trace, traceable
 
 from .chunking import HybridDocumentChunker
 from .docling_service import DoclingParser
-from .embeddings import OpenRouterEmbedder, vector_literal
+from .embeddings import OpenRouterEmbedder, LocalMathEmbedder, vector_literal
 from .exceptions import JobDispatchError
 from .models import (
     AcceptedDocument,
@@ -380,12 +380,36 @@ def embed_document(
             document_id, parsed_owner_id, embedding_settings.model
         )
         if chunks:
-            vectors = OpenRouterEmbedder(embedding_settings).embed_texts(
-                [str(chunk["contextualized_text"]) for chunk in chunks]
-            )
+            # 1. Bifurcate chunks based on content_types
+            text_chunks = []
+            formula_chunks = []
+            for chunk in chunks:
+                if "formula" in chunk.get("content_types", []):
+                    formula_chunks.append(chunk)
+                else:
+                    text_chunks.append(chunk)
+            
+            # 2. Embed Text chunks with OpenRouter
+            vectors_text = []
+            if text_chunks:
+                vectors_text = OpenRouterEmbedder(embedding_settings).embed_texts(
+                    [str(chunk["contextualized_text"]) for chunk in text_chunks]
+                )
+            
+            # 3. Embed Formula chunks with local MathBERTa
+            vectors_formula = []
+            if formula_chunks:
+                vectors_formula = LocalMathEmbedder(embedding_settings).embed_texts(
+                    [str(chunk["contextualized_text"]) for chunk in formula_chunks]
+                )
+            
+            # 4. Re-combine and write to database
+            all_processed_chunks = text_chunks + formula_chunks
+            all_vectors = vectors_text + vectors_formula
+            
             rows = [
                 {"chunk_id": str(chunk["id"]), "embedding": vector_literal(vector)}
-                for chunk, vector in zip(chunks, vectors)
+                for chunk, vector in zip(all_processed_chunks, all_vectors)
             ]
             for start in range(0, len(rows), embedding_settings.batch_size):
                 persistence.write_chunk_embeddings(
